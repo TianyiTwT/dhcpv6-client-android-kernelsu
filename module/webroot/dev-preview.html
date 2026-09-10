@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>DHCPv6 客户端 — 预览</title>
+<link rel="stylesheet" href="style.css">
+<style>
+	/* 仅预览用：模拟内核桥，好在浏览器/预览面板里看到真实渲染效果。
+	   这个文件不会被打进模块包（见 build.sh 的排除规则）。 */
+	.preview-bar {
+		position: sticky; top: 0; z-index: 20;
+		display: flex; gap: 8px; padding: 10px 16px;
+		background: var(--surface);
+		border-bottom: 1px solid var(--line);
+		overflow-x: auto;
+	}
+	.preview-bar button {
+		flex: none; height: 32px; padding: 0 12px;
+		border: 1px solid var(--line-strong); border-radius: 8px;
+		background: var(--surface); color: var(--text-2);
+		font-family: inherit; font-size: 13px; cursor: pointer;
+	}
+	.preview-bar button[aria-pressed="true"] {
+		background: var(--text); color: var(--bg); border-color: transparent;
+	}
+	.preview-note {
+		padding: 8px 16px 0; font-size: 12px; color: var(--text-3);
+	}
+</style>
+</head>
+<body>
+
+<div class="preview-bar">
+	<button type="button" data-scene="ok" aria-pressed="true">正常</button>
+	<button type="button" data-scene="noipv6" aria-pressed="false">未取得地址</button>
+	<button type="button" data-scene="stopped" aria-pressed="false">未运行</button>
+	<button type="button" data-scene="empty" aria-pressed="false">无网络</button>
+</div>
+<p class="preview-note">预览用，数据是真机抓的。实际模块里没有这条工具条。</p>
+
+<header class="bar">
+	<div class="bar-text">
+		<h1 class="bar-title">DHCPv6 客户端</h1>
+		<p class="bar-sub" id="subtitle">正在读取…</p>
+	</div>
+	<span class="dot dot-idle" id="dot" aria-hidden="true"></span>
+</header>
+
+<div class="banner" id="banner" hidden></div>
+
+<main class="main" id="main">
+	<section class="block">
+		<h2 class="block-title">IPv6</h2>
+		<div class="card" id="card6">
+			<div class="placeholder">正在读取…</div>
+		</div>
+	</section>
+
+	<section class="block">
+		<h2 class="block-title">IPv4</h2>
+		<div class="card" id="card4">
+			<div class="placeholder">正在读取…</div>
+		</div>
+	</section>
+
+	<p class="footnote" id="footnote"></p>
+</main>
+
+<footer class="actions">
+	<button type="button" class="btn" id="btnRefresh">刷新</button>
+	<button type="button" class="btn btn-primary" id="btnRestart">重启客户端</button>
+</footer>
+
+<script>
+/* ── 模拟内核桥 ────────────────────────────────────────────────
+   真实环境里 window.ksu 由 KernelSU 的管理器注入。
+   这里用真机抓下来的输出喂给同一份 app.js，保证渲染路径完全一致。 */
+const SCENES = {};
+
+SCENES.ok = String.raw`RUNNING=1
+PID=3964
+WATCHDOG=1
+IFNAME=wlan0
+IFACE_UP=1
+GLOBAL6=1
+PAUSED=0
+MODULE_OFF=0
+IA_ADDR=2001:da8:208:38:34be:285a:4d57:4540
+IA_ADDR_HEX=20010da80208003834be285a4d574540
+DNS=
+##ADDR
+1: lo    inet 127.0.0.1/8 scope host lo\       valid_lft forever preferred_lft forever
+1: lo    inet6 ::1/128 scope host \       valid_lft forever preferred_lft forever
+17: wlan0    inet 10.39.153.4/15 brd 10.39.255.255 scope global wlan0\       valid_lft forever preferred_lft forever
+17: wlan0    inet6 2001:da8:208:38:34be:285a:4d57:4540/128 scope global \       valid_lft forever preferred_lft forever
+17: wlan0    inet6 fe80::8b8c:cd17:ed8d:f898/64 scope link stable-privacy \       valid_lft forever preferred_lft forever
+21: rmnet_data1    inet6 240e:504:1931:b605:7089:41ff:fef3:fac4/64 scope global dynamic mngtmpaddr \       valid_lft forever preferred_lft forever`;
+
+SCENES.noipv6 = String.raw`RUNNING=1
+PID=3964
+WATCHDOG=1
+IFNAME=wlan0
+IFACE_UP=1
+GLOBAL6=0
+PAUSED=0
+MODULE_OFF=0
+IA_ADDR=
+IA_ADDR_HEX=
+DNS=
+##ADDR
+1: lo    inet 127.0.0.1/8 scope host lo\       valid_lft forever preferred_lft forever
+17: wlan0    inet 10.39.153.4/15 brd 10.39.255.255 scope global wlan0\       valid_lft forever preferred_lft forever
+17: wlan0    inet6 fe80::8b8c:cd17:ed8d:f898/64 scope link stable-privacy \       valid_lft forever preferred_lft forever`;
+
+SCENES.stopped = String.raw`RUNNING=0
+PID=
+WATCHDOG=1
+IFNAME=wlan0
+IFACE_UP=1
+GLOBAL6=0
+PAUSED=1
+MODULE_OFF=0
+IA_ADDR=
+IA_ADDR_HEX=
+DNS=
+##ADDR
+17: wlan0    inet 10.39.153.4/15 brd 10.39.255.255 scope global wlan0\       valid_lft forever preferred_lft forever
+17: wlan0    inet6 fe80::8b8c:cd17:ed8d:f898/64 scope link stable-privacy \       valid_lft forever preferred_lft forever`;
+
+SCENES.empty = String.raw`RUNNING=0
+PID=
+WATCHDOG=1
+IFNAME=wlan0
+IFACE_UP=0
+GLOBAL6=0
+PAUSED=0
+MODULE_OFF=0
+IA_ADDR=
+IA_ADDR_HEX=
+DNS=
+##ADDR
+1: lo    inet 127.0.0.1/8 scope host lo\       valid_lft forever preferred_lft forever`;
+
+let scene = 'ok';
+
+window.ksu = {
+	exec(command, optionsJson, callbackName) {
+		const out = SCENES[scene] || '';
+		setTimeout(() => {
+			try { window[callbackName](0, out, ''); } catch (e) { /* noop */ }
+		}, 120);
+	},
+	toast(message) {
+		const el = document.createElement('div');
+		el.textContent = message;
+		el.style.cssText = 'position:fixed;left:50%;bottom:88px;transform:translateX(-50%);'
+			+ 'padding:8px 14px;border-radius:8px;background:#17181a;color:#fff;font-size:13px;z-index:99';
+		document.body.appendChild(el);
+		setTimeout(() => el.remove(), 1400);
+	},
+};
+
+document.querySelectorAll('.preview-bar button').forEach(btn => {
+	btn.addEventListener('click', () => {
+		scene = btn.dataset.scene;
+		document.querySelectorAll('.preview-bar button').forEach(b => {
+			b.setAttribute('aria-pressed', String(b === btn));
+		});
+		document.getElementById('btnRefresh').click();
+	});
+});
+</script>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

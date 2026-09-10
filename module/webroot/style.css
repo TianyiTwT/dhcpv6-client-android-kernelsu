@@ -1,0 +1,281 @@
+/*
+ * style.css —— DHCPv6 客户端 WebUI
+ *
+ * 定位：一个系统工具页面，不是一个网站。
+ * 所以规矩是：
+ *   · 不用渐变、不用毛玻璃、不用大圆角卡片配大面积留白 —— 那些是落地页的做法；
+ *   · 颜色只用中性灰阶，加一个克制的强调色（墨绿），
+ *     状态以外的地方不出现彩色；
+ *   · 不用紫 / 蓝紫任何色相；
+ *   · 字体交给系统（Android 上会落到 Noto Sans CJK），
+ *     地址用等宽，因为它本来就是一串需要逐位核对的字符；
+ *   · 布局贴近 Material 的列表 + 卡片，而不是自创一套视觉语言。
+ *
+ * 明暗两套跟随系统。KernelSU / LSPosed 的管理器都是这个行为，
+ * 硬编码一套会在另一种主题下很刺眼。
+ */
+
+:root {
+	--bg:            #f4f4f5;
+	--surface:       #ffffff;
+	--surface-sunk:  #fafafa;
+	--line:          #e6e6e8;
+	--line-strong:   #d6d6da;
+
+	--text:          #17181a;
+	--text-2:        #6c6d73;
+	--text-3:        #9a9ba1;
+
+	--accent:        #2f6b4f;
+	--accent-bg:     #e9f2ec;
+	--danger:        #b3261e;
+
+	--sans: "Noto Sans SC", "Source Han Sans SC", "PingFang SC",
+	        "Microsoft YaHei", sans-serif;
+	--mono: "Noto Sans Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+	--radius: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg:           #0e0f10;
+		--surface:      #191a1c;
+		--surface-sunk: #141517;
+		--line:         #2b2c30;
+		--line-strong:  #3a3b40;
+
+		--text:         #e8e8ea;
+		--text-2:       #9b9ca3;
+		--text-3:       #6f7076;
+
+		--accent:       #7fbb9e;
+		--accent-bg:    #1b2620;
+		--danger:       #e87066;
+	}
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+	margin: 0;
+	padding: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--sans);
+	font-size: 16px;
+	line-height: 1.5;
+	-webkit-text-size-adjust: 100%;
+	-webkit-tap-highlight-color: transparent;
+}
+
+body {
+	display: flex;
+	flex-direction: column;
+	min-height: 100vh;
+	/* 顶部状态栏 / 底部手势条安全区 */
+	padding-top: env(safe-area-inset-top);
+}
+
+/* ─────────────────────────────────────────── 顶部 */
+
+.bar {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 16px 20px 14px;
+	border-bottom: 1px solid var(--line);
+	background: var(--bg);
+	position: sticky;
+	top: 0;
+	z-index: 10;
+}
+
+.bar-text { flex: 1; min-width: 0; }
+
+.bar-title {
+	margin: 0;
+	font-size: 19px;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+}
+
+.bar-sub {
+	margin: 3px 0 0;
+	font-size: 13px;
+	color: var(--text-2);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.dot {
+	flex: none;
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	background: var(--text-3);
+}
+
+.dot-on    { background: var(--accent); }
+.dot-off   { background: var(--danger); }
+.dot-idle  { background: var(--text-3); }
+
+/* ─────────────────────────────────────────── 主体 */
+
+.main {
+	flex: 1;
+	padding: 8px 16px 24px;
+	max-width: 640px;
+	width: 100%;
+	margin: 0 auto;
+}
+
+.block { margin-top: 20px; }
+
+.block-title {
+	margin: 0 0 8px 4px;
+	font-size: 13px;
+	font-weight: 500;
+	color: var(--text-2);
+	letter-spacing: 0.02em;
+}
+
+.card {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	overflow: hidden;
+}
+
+.placeholder {
+	padding: 18px 16px;
+	font-size: 14px;
+	color: var(--text-3);
+}
+
+/* ─────────────────────────────────────────── 地址行 */
+
+.row {
+	padding: 13px 16px;
+}
+
+.row + .row {
+	border-top: 1px solid var(--line);
+}
+
+.row-own {
+	background: var(--accent-bg);
+}
+
+.row-addr {
+	font-family: var(--mono);
+	font-size: 13.5px;
+	line-height: 1.45;
+	word-break: break-all;
+	letter-spacing: -0.01em;
+}
+
+.row-own .row-addr {
+	color: var(--accent);
+	font-weight: 600;
+}
+
+.row-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 7px;
+}
+
+.tag {
+	display: inline-block;
+	padding: 1px 7px;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	background: var(--surface-sunk);
+	font-size: 11px;
+	line-height: 17px;
+	color: var(--text-2);
+}
+
+.tag-own {
+	border-color: transparent;
+	background: var(--accent);
+	color: var(--surface);
+}
+
+@media (prefers-color-scheme: dark) {
+	.tag-own { color: #10201a; }
+}
+
+.footnote {
+	margin: 18px 4px 0;
+	font-size: 12px;
+	line-height: 1.6;
+	color: var(--text-3);
+}
+
+/* ─────────────────────────────────────────── 提示条 */
+
+.banner {
+	margin: 12px 16px 0;
+	padding: 11px 14px;
+	border: 1px solid var(--line-strong);
+	border-radius: 10px;
+	background: var(--surface);
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--text-2);
+}
+
+.banner-error {
+	border-color: var(--danger);
+	color: var(--danger);
+}
+
+/* ─────────────────────────────────────────── 操作 */
+
+.actions {
+	position: sticky;
+	bottom: 0;
+	display: flex;
+	gap: 10px;
+	padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+	border-top: 1px solid var(--line);
+	background: var(--bg);
+}
+
+.btn {
+	flex: 1;
+	height: 44px;
+	border: 1px solid var(--line-strong);
+	border-radius: 11px;
+	background: var(--surface);
+	color: var(--text);
+	font-family: inherit;
+	font-size: 15px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: opacity .12s ease;
+}
+
+.btn:active { opacity: .6; }
+
+.btn:disabled {
+	opacity: .45;
+	cursor: default;
+}
+
+.btn-primary {
+	border-color: transparent;
+	background: var(--text);
+	color: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+	.btn-primary {
+		background: #e8e8ea;
+		color: #141517;
+	}
+}

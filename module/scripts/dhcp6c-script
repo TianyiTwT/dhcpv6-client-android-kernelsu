@@ -1,0 +1,109 @@
+#!/system/bin/sh
+#
+# dhcp6c-script —— dhcp6c 的事件回调
+#
+# dhcp6c 在状态变化时会 fork 出本脚本并等它结束，信息全部通过环境变量传入。
+#
+# ── 契约（来自 dhcp6c_script.c 的 RENDER_* 宏，改之前务必回去核对）─────
+#
+#   REASON                   INIT / SOLICIT / INFOREQ / REQUEST / RENEW /
+#                            REBIND / RELEASE / IDLE / EXIT
+#   IFNAME                   接口名
+#   NAINFO                   "<地址>/128 <地址>/128 "
+#                            空格分隔，**末尾还带一个空格**。
+#                            注意不是 "IAID=0 ADDRESS=... PLTIME=... VLIFE=..."，
+#                            那是旧版/别处文档的写法，本 fork 的实际实现不是这样
+#                            （见 dhcp6c_script.c 的 RENDER_IA：只拼 "%s/128"）。
+#   new_domain_name_servers  服务端下发的 DNS，空格分隔（本网络为空）
+#
+# ── 两条纪律 ─────────────────────────────────────────────────────
+#
+# 1) 不要在这里改接口地址。地址是 dhcp6c 自己通过 ifaddrconf() 写进内核的，
+#    脚本代劳只会两边打架。
+# 2) 必须尽快返回。它是在 dhcp6c 主循环之外同步执行的，
+#    卡住会直接拖住整个客户端。
+#
+# ── 本脚本的职责 ─────────────────────────────────────────────────
+#
+# 只做一件事：把拿到的 IA_NA 地址落盘成「32 位十六进制」形式，供
+# watchdog 做存在性比对、供 WebUI 做展示。
+#
+# 为什么要转成 32 位十六进制：/proc/net/if_inet6 里就是这种无冒号形式，
+# watchdog 主循环因此可以纯靠 shell 内建 read 直接字符串比对，
+# 不 fork 任何进程、也不需要在前缀匹配上做任何假设（地址是 /128 主机地址，
+# 前缀匹配本来也不适用）。
+
+PREFIX=${DHCP6C_PREFIX:-/data/adb/dhcp6c}
+STATE=$PREFIX/state
+LOGDIR=$PREFIX/log
+mkdir -p "$STATE" "$LOGDIR" 2>/dev/null
+
+# 冒号写法（含 :: 压缩）-> 32 位小写十六进制。
+# 放在这里而不是 watchdog 里，是因为回调一天才跑几次，可以随便 fork；
+# watchdog 每 5 秒跑一次，那边必须是纯内建操作。
+to_hex32() {
+	awk '
+	function pad(g) { while (length(g) < 4) g = "0" g; return g }
+	{
+		ip = $0
+		gsub(/[ \t\r\n]/, "", ip)
+		n = index(ip, "::")
+		k = 0
+		if (n > 0) {
+			left  = substr(ip, 1, n - 1)
+			right = substr(ip, n + 2)
+			ln = (left  == "") ? 0 : split(left,  L, ":")
+			rn = (right == "") ? 0 : split(right, R, ":")
+			for (i = 1; i <= ln; i++) G[++k] = L[i]
+			for (i = 1; i <= 8 - ln - rn; i++) G[++k] = "0"
+			for (i = 1; i <= rn; i++) G[++k] = R[i]
+		} else {
+			k = split(ip, G, ":")
+		}
+		out = ""
+		for (i = 1; i <= 8; i++) {
+			g = (i <= k && G[i] != "") ? tolower(G[i]) : "0"
+			out = out pad(g)
+		}
+		print substr(out, 1, 32)
+	}
+	'
+}
+
+# 每次事件留一行，日志由 watchdog 负责轮转
+printf '%s REASON=%s IFNAME=%s NAINFO=%s DNS=%s\n' \
+	"$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" \
+	"$REASON" "$IFNAME" "$NAINFO" "$new_domain_name_servers" \
+	>>"$LOGDIR/script.log" 2>/dev/null
+
+# DNS 本期只记录不启用，先落盘留给 WebUI 之后用
+if [ -n "$new_domain_name_servers" ]; then
+	printf '%s\n' "${new_domain_name_servers% }" > "$STATE/dns.servers" 2>/dev/null
+fi
+
+# RELEASE / EXIT 时不记录：那是在归还或退出，此时 NAINFO 里可能还带着地址，
+# 若把它当成「期望地址」，watchdog 下一轮就会发现地址不在了而误判成丢失。
+case "$REASON" in
+	RELEASE|EXIT)
+		:
+		;;
+	*)
+		if [ -n "$NAINFO" ]; then
+			# shell 分词，取第一个地址
+			set -- $NAINFO
+			one=${1%/128}
+			one=${one%/*}
+			if [ -n "$one" ]; then
+				hex=$(printf '%s\n' "$one" | to_hex32)
+				case "$hex" in
+					????????????????????????????????)   # 恰好 32 位才认
+						printf '%s\n' "$hex" > "$STATE/ia_na.addr"
+						printf '%s\n' "$one" > "$STATE/ia_na.text"
+						;;
+				esac
+			fi
+		fi
+		;;
+esac
+
+exit 0

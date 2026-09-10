@@ -1,0 +1,30 @@
+# dhcp6c 配置模板
+#
+# 安装时由 customize.sh 把 __IFNAME__ 替换成实际无线接口名，
+# 生成 /data/adb/dhcp6c/dhcp6c.conf。
+# 生成之后那份才是生效的，可以直接改；重新安装模块不会覆盖它。
+#
+# ── 两个必须注意的点 ────────────────────────────────────────────
+#
+# 1) DNS 那一行必须写 request，不能写 send。
+#    DHCPOPT_DNS 在 config.c 的 add_options() 里只接受 DHCPOPTCODE_REQUEST。
+#    写成 send 只会打一行 "invalid operation (0) for option type (19)"，
+#    然后**静默地**不把选项 23 加进 ORO —— 也就是说根本没请求 DNS，
+#    而只有那一行 log 看得出来。上游自带的 dhcp6c.conf.sample 里写的就是 send。
+#
+# 2) pid 文件必须显式指定。
+#    编译期默认是 /var/run/dhcp6c.pid，Android 上没有 /var/run；
+#    该文件即使在 -f 模式也会被无条件打开，打开失败进程直接退出。
+#    本模块的 lib/dhcp6c-ctl.sh 已经带上 -p，这里不用管。
+#
+# 不启用 rapid-commit：走标准四步握手（Solicit→Advertise→Request→Reply），
+# 与在真机上验证过的路径一致。
+
+interface __IFNAME__ {
+	send ia-na 0;
+	request domain-name-servers;
+	script "/data/adb/dhcp6c/dhcp6c-script";
+};
+
+id-assoc na {
+};

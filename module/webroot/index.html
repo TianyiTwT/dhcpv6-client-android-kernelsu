@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>DHCPv6 客户端</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="bar">
+	<div class="bar-text">
+		<h1 class="bar-title">DHCPv6 客户端</h1>
+		<p class="bar-sub" id="subtitle">正在读取…</p>
+	</div>
+	<span class="dot dot-idle" id="dot" aria-hidden="true"></span>
+</header>
+
+<div class="banner" id="banner" hidden></div>
+
+<main class="main" id="main">
+	<section class="block">
+		<h2 class="block-title">IPv6</h2>
+		<div class="card" id="card6">
+			<div class="placeholder">正在读取…</div>
+		</div>
+	</section>
+
+	<section class="block">
+		<h2 class="block-title">IPv4</h2>
+		<div class="card" id="card4">
+			<div class="placeholder">正在读取…</div>
+		</div>
+	</section>
+
+	<p class="footnote" id="footnote"></p>
+</main>
+
+<footer class="actions">
+	<button type="button" class="btn" id="btnRefresh">刷新</button>
+	<button type="button" class="btn btn-primary" id="btnRestart">重启客户端</button>
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

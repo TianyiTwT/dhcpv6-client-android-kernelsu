@@ -1,0 +1,10 @@
+# 整个仓库统一使用 LF。
+#
+# 这不是洁癖：module/ 下的 shell 脚本会被系统直接 exec，
+# 而 CRLF 会让 shebang 变成 "#!/system/bin/sh\r"，解释器路径带 \r 找不到，
+# 结果是 exec 失败且报错信息很不直观。webroot 下的文件同理（WebView 倒是不挑，
+# 但保持一致性省得以后再踩）。
+* text=auto eol=lf
+
+# 二进制产物不做任何行尾转换，也不参与 diff。
+module/bin/dhcp6c -text -diff

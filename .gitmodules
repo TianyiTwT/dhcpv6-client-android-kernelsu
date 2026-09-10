@@ -1,0 +1,3 @@
+[submodule "dhcp6c"]
+	path = dhcp6c
+	url = https://github.com/TianyiTwT/dhcp6c.git

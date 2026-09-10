@@ -1,0 +1,6 @@
+id=dhcp6c-android
+name=DHCPv6 客户端
+version=v0.1.0
+versionCode=1
+author=TianyiTwT
+description=为 Android 补上 DHCPv6 有状态地址分配（IA_NA）。Android 全版本都不实现 IA_NA，本模块用 AF_PACKET 绕开被系统 DHCPv6 客户端长期占用的 UDP 546，在无线接口上直接与服务器完成四步握手拿到全局地址。

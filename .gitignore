@@ -1,0 +1,11 @@
+# 构建产物：由 build.sh 从 dhcp6c/ submodule 编译后拷进来，不入库
+module/bin/dhcp6c
+.build-out/
+
+# 打包输出
+dist/
+*.zip
+
+# 编辑器 / 系统杂项
+.DS_Store
+Thumbs.db
