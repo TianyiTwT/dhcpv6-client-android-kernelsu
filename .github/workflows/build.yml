@@ -105,6 +105,9 @@ jobs:
       - name: 创建 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 这个 job 没有检出代码（只下载产物），gh 找不到仓库上下文会直接失败，
+          # 表现为「构建成功、发布失败」。显式指明目标仓库，不依赖 cwd 里的 .git。
+          GH_REPO: ${{ github.repository }}
         run: |
           set -e
           ls -la dist/
