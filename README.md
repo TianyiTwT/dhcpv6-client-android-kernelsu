@@ -38,6 +38,7 @@ Android 适配版）。关键改动是把收发下沉到 **AF_PACKET 二层**，
 
 ```
 .
+├── .github/workflows/build.yml # CI：编译 + 打 tag 时自动发 Release
 ├── dhcp6c/                    # submodule：fork 出来的 wide-dhcpv6，锁定 tag android-v1.0.0
 ├── module/                    # 模块内容，即打进 zip 的东西
 │   ├── module.prop
@@ -72,6 +73,21 @@ sh build.sh --install                # 打包后直接 adb + ksud 装到设备
 产物：`dist/dhcp6c-android-<version>.zip`，可直接被 KernelSU / Magisk 安装。
 
 装完后开机自动启动；想立刻生效就点模块卡片的「操作」按钮。
+
+### 自动构建（GitHub Actions）
+
+推送到 `main`、提 PR、或在 Actions 页手动触发，都会在 CI 上完整编译一遍。
+矩阵是 `arm64-v8a` + `armeabi-v7a`（一个模块包只容纳一个 ABI 的二进制，
+所以每个 ABI 各出一个 zip），产物在对应 run 的 Artifacts 里下载。
+
+推形如 `v0.2.0` 的 tag 时，除了编译还会自动建 Release 并把两个 zip 挂上去。
+
+CI 与本机等价的条件是 **NDK r29 + bison/flex**。本机编出的 arm64 二进制
+SHA256 是 `08cb2ff61d249ee9ae7a7304e5fc53ed1890b777dfbfacbda2e8dfe1dfba3e52`，
+CI 上若不同，先看 NDK 版本或宿主差异，不要先怀疑代码。
+
+老设备（低于 Android 7.0）需要手动触发并把 minSdk 降到 21 —— 即 Actions 页的
+`minSdk API level` 填 `21`。
 
 ---
 
@@ -190,6 +206,11 @@ ip -o addr show                     # 每行一个地址
    顺带一提：`ndc resolver` 在 Android 16 上已被移除（实测返回
    `500 0 Command not recognized`），老式注入路线走不通。
 3. **默认路由仍然只靠 RA。** DHCPv6 本身不下发默认路由，这个不归本模块管。
+4. **WebUI 只在 KernelSU / APatch 里能开。** `webroot` 目录是 KernelSU 引入的机制，
+   Magisk 没有对应的内置 WebUI（它的模块结构里只有 `post-fs-data.sh` / `service.sh` /
+   `action.sh` / `system.prop` / `sepolicy.rule`）。所以在纯 Magisk 环境下，
+   模块功能照常（`dhcp6c`、看门狗、开机自启、`action.sh` 的「操作」按钮都不依赖 KernelSU），
+   但看地址得用「操作」按钮或自己 `cat /data/adb/dhcp6c/state/ia_na.text`。
 
 ---
 

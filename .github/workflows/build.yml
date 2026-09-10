@@ -1,0 +1,114 @@
+name: build
+
+# 什么时候跑：
+#   - push 到 main：验证还能编出来
+#   - push 形如 v0.2.0 的 tag：除了编译，还会自动建 Release 并附上 zip
+#   - PR：验证没编坏
+#   - 手动触发：可以指定 minSdk API level（老设备可能要降 API）
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      api:
+        description: 'minSdk API level（默认留空 = 用 build.sh 的 24，即 Android 7.0；更老的设备试 21）'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 构建 ${{ matrix.abi }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 一个模块包只容纳一个 ABI 的二进制（二进制在模块根，没有按 ABI 分目录），
+        # 所以每个 ABI 各出一个 zip。
+        abi: [arm64-v8a, armeabi-v7a]
+    steps:
+      - name: 检出（含 submodule）
+        uses: actions/checkout@v4
+        with:
+          # dhcp6c 是 submodule，固定在某个 tag 上 —— 必须一起拉下来，
+          # 否则 build.sh 找不到 dhcp6c/android/build.sh 会直接报错退出。
+          submodules: recursive
+
+      - name: 安装 bison / flex
+        # 仓库不提交预生成的 config parser，cfparse.c / cftoken.c 必须现场生成
+        # zip 用来打包模块（build.sh 里 zip 找不到会退回 python，但显式装上更稳）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bison flex zip unzip
+
+      - name: 安装 Android NDK
+        env:
+          NDK_VERSION: r29
+        run: |
+          set -e
+          curl -fsSL -o /tmp/ndk.zip \
+            "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip"
+          sudo unzip -q /tmp/ndk.zip -d /opt
+          rm -f /tmp/ndk.zip
+          # fork 的 build.sh 优先读 ANDROID_NDK_HOME；/opt/android-ndk-* 也在它的自动探测列表里
+          echo "ANDROID_NDK_HOME=/opt/android-ndk-${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: 编译并打包
+        env:
+          ABI: ${{ matrix.abi }}
+          API: ${{ github.event.inputs.api }}
+        run: |
+          set -e
+          set -- --abi "$ABI"
+          if [ -n "$API" ]; then set -- "$@" --api "$API"; fi
+          echo "build.sh $*"
+
+          sh build.sh "$@"
+
+          VERSION=$(sed -n 's/^version=//p' module/module.prop | head -n 1)
+          [ -n "$VERSION" ] || VERSION=dev
+          # 两个 ABI 会同名，加上 ABI 后缀区分
+          mv "dist/dhcp6c-android-$VERSION.zip" "dist/dhcp6c-android-$VERSION-$ABI.zip"
+
+          echo "── 产物 ──"
+          ls -la dist/
+
+      - name: 记录二进制摘要
+        # 交叉编译应该是可复现的：本机 Windows + NDK r29 编 arm64-v8a 得到
+        # 08cb2ff61d249ee9ae7a7304e5fc53ed1890b777dfbfacbda2e8dfe1dfba3e52。
+        # CI 上不一样时，先怀疑 NDK 版本或宿主差异，不要先怀疑代码。
+        run: sha256sum module/bin/dhcp6c || true
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: dhcp6c-android-${{ matrix.abi }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: 发布
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取回所有 ABI 的产物
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          ls -la dist/
+          # Release 已存在（比如重复推同一个 tag）就改为覆盖上传附件
+          gh release create "$GITHUB_REF_NAME" dist/*.zip \
+            --title "$GITHUB_REF_NAME" --generate-notes \
+          || gh release upload "$GITHUB_REF_NAME" dist/*.zip --clobber
