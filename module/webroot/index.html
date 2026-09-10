@@ -1,34 +1,68 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-skin="miuix" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>DHCPv6 客户端</title>
+
+<script>
+/* 在**首次绘制之前**把「跟随系统」解析成具体的 light / dark 写进 data-theme。
+   这样 style.css 里只需要两套 token，不必在 prefers-color-scheme 媒体查询里
+   再抄一遍深色值（抄两份迟早不同步）。放在这里而不是 app.js，是因为
+   app.js 是 module，执行时机在解析之后，会闪一下白底。 */
+(function () {
+	var dark = false;
+	try { dark = window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) {}
+	var pref = 'system';
+	try { pref = localStorage.getItem('d6.theme') || 'system'; } catch (e) {}
+	if (pref === 'dark' || (pref === 'system' && dark)) {
+		document.documentElement.dataset.theme = 'dark';
+	} else {
+		document.documentElement.dataset.theme = 'light';
+	}
+	try {
+		var skin = localStorage.getItem('d6.skin');
+		if (skin) document.documentElement.dataset.skin = skin;
+	} catch (e) {}
+})();
+</script>
+
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<header class="bar">
-	<div class="bar-text">
-		<h1 class="bar-title">DHCPv6 客户端</h1>
-		<p class="bar-sub" id="subtitle">正在读取…</p>
-	</div>
-	<span class="dot dot-idle" id="dot" aria-hidden="true"></span>
+<header class="topbar">
+	<button type="button" class="iconbtn" id="btnSettings" aria-label="设置">
+		<svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+			<path d="M3 6h16M3 11h10M3 16h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+		</svg>
+	</button>
+	<h1 class="topbar-title">DHCPv6 客户端</h1>
 </header>
 
-<div class="banner" id="banner" hidden></div>
-
 <main class="main" id="main">
+	<h2 class="page-title">DHCPv6 客户端</h2>
+
+	<div class="banner" id="banner" hidden></div>
+
+	<section class="status-card" id="statusCard">
+		<div class="status-text">
+			<p class="status-title" id="statusTitle">正在读取…</p>
+			<p class="status-sub" id="statusSub"></p>
+		</div>
+		<span class="status-icon" id="statusIcon" aria-hidden="true"></span>
+	</section>
+
 	<section class="block">
-		<h2 class="block-title">IPv6</h2>
+		<h3 class="block-title">IPv6</h3>
 		<div class="card" id="card6">
 			<div class="placeholder">正在读取…</div>
 		</div>
 	</section>
 
 	<section class="block">
-		<h2 class="block-title">IPv4</h2>
+		<h3 class="block-title">IPv4</h3>
 		<div class="card" id="card4">
 			<div class="placeholder">正在读取…</div>
 		</div>
@@ -41,6 +75,46 @@
 	<button type="button" class="btn" id="btnRefresh">刷新</button>
 	<button type="button" class="btn btn-primary" id="btnRestart">重启客户端</button>
 </footer>
+
+<button type="button" class="scrim" id="scrim" hidden aria-label="关闭设置"></button>
+
+<section class="sheet" id="sheet" hidden aria-label="设置">
+	<div class="sheet-handle"></div>
+	<h2 class="sheet-title">设置</h2>
+
+	<div class="sheet-group">
+		<p class="field-label">外观</p>
+		<div class="seg" role="group" aria-label="皮肤">
+			<button type="button" class="seg-item" data-skin="miuix" aria-pressed="true">Miuix</button>
+			<button type="button" class="seg-item" data-skin="material3" aria-pressed="false">Material 3</button>
+		</div>
+	</div>
+
+	<div class="sheet-group">
+		<p class="field-label">主题</p>
+		<div class="seg" role="group" aria-label="主题">
+			<button type="button" class="seg-item" data-theme-opt="system" aria-pressed="true">跟随系统</button>
+			<button type="button" class="seg-item" data-theme-opt="light" aria-pressed="false">浅色</button>
+			<button type="button" class="seg-item" data-theme-opt="dark" aria-pressed="false">深色</button>
+		</div>
+		<p class="field-hint">KernelSU 的 WebView 不一定上报系统深浅；这里可以手动指定。</p>
+	</div>
+
+	<div class="sheet-group">
+		<p class="field-label">接口</p>
+		<div class="sheet-list">
+			<div class="list-row"><span>目标接口</span><span class="list-value" id="sIfname">—</span></div>
+			<div class="list-row"><span>看门狗</span><span class="list-value" id="sWatchdog">—</span></div>
+		</div>
+	</div>
+
+	<div class="sheet-group">
+		<p class="field-label">关于</p>
+		<div class="sheet-list">
+			<div class="list-row"><span>DHCPv6 客户端</span><span class="list-value" id="sVersion">—</span></div>
+		</div>
+	</div>
+</section>
 
 <script type="module" src="app.js"></script>
 </body>

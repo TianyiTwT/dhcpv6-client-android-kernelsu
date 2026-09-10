@@ -1,59 +1,317 @@
 /*
  * style.css —— DHCPv6 客户端 WebUI
  *
- * 定位：一个系统工具页面，不是一个网站。
- * 所以规矩是：
- *   · 不用渐变、不用毛玻璃、不用大圆角卡片配大面积留白 —— 那些是落地页的做法；
- *   · 颜色只用中性灰阶，加一个克制的强调色（墨绿），
- *     状态以外的地方不出现彩色；
- *   · 不用紫 / 蓝紫任何色相；
- *   · 字体交给系统（Android 上会落到 Noto Sans CJK），
- *     地址用等宽，因为它本来就是一串需要逐位核对的字符；
- *   · 布局贴近 Material 的列表 + 卡片，而不是自创一套视觉语言。
+ * ── 两个维度 ─────────────────────────────────────────────────────
  *
- * 明暗两套跟随系统。KernelSU / LSPosed 的管理器都是这个行为，
- * 硬编码一套会在另一种主题下很刺眼。
+ * 皮肤：html[data-skin="miuix" | "material3"]
+ * 明暗：html[data-theme="light" | "dark"]
+ *
+ * 「跟随系统」不是在 CSS 里用 prefers-color-scheme 实现的，而是由 index.html
+ * <head> 里的一小段内联脚本在**首次绘制之前**解析成具体的 light/dark 写进
+ * data-theme。这么做是为了少抄一遍深色 token（媒体查询里一半、属性选择器里
+ * 又一半，两处迟早会不同步），代价是需要 JS —— 而 WebView 里 JS 一定在。
+ *
+ * ── 配色原则：一屏只有一个彩色主角 ───────────────────────────────
+ *
+ *   · 蓝（--accent）＝ 可交互的东西：主按钮、开关、选中态、本模块自己的地址标记；
+ *   · 绿（--ok）    ＝ 只做状态图标，**不染文字、不做底色上的文字色**；
+ *   · 红（--danger）＝ 异常；
+ *   · 其余全部中性灰。
+ *
+ * 这是照着 SukiSU 的观感定的：它首页只有那个绿勾是彩色，模块页只有开关、
+ * FAB、选中的 tab 是蓝色，同屏从不出现两个强调色。
+ *
+ * ── 两套皮肤必须「一眼可辨」，不是微调 ───────────────────────────
+ *
+ * 第一版只在 token 层做了区分（圆角 / 描边 / 磨砂），布局结构和色彩用法完全
+ * 一样，观感就是「同一个界面微调了两下」——用户的原话是「看不出区别」。
+ * 所以现在按各自的设计语言拉开：
+ *
+ *   Miuix（MIUI / HyperOS）：顶栏只留图标、标题下放成正文大字、无描边大圆角
+ *     卡片靠白底浮起、全药丸按钮、灰轨道 + 白滑块分段控件、顶栏底栏磨砂。
+ *   Material 3：顶栏用 surface-container 染色并承载标题、**轮廓卡**（透明底 +
+ *     描边）、filled tonal + filled 两级按钮、12px 圆角、outlined segmented
+ *     button（描边分段 + 细分隔线 + 选中填色带勾选标记）、不磨砂。
+ *
+ * ── 磨砂玻璃的适用范围 ───────────────────────────────────────────
+ *
+ * 只给 Miuix 的顶栏、底部操作条、设置面板的遮罩用 —— 它们浮在滚动内容之上，
+ * 有东西可透。M3 走的是不透明 surface 层次，不用磨砂。backdrop-filter 在老
+ * WebView 上不生效，所以每一处都配了不透明兜底（见各处的 @supports not）。
  */
 
-:root {
-	--bg:            #f4f4f5;
+/* ══════════════════════════════════════════════ token */
+
+:root[data-theme="light"] {
+	--bg:            #f5f5f5;
 	--surface:       #ffffff;
-	--surface-sunk:  #fafafa;
-	--line:          #e6e6e8;
-	--line-strong:   #d6d6da;
+	--surface-2:     #f2f2f2;
+	--surface-3:     #f7f7f7;
+	--line:          #ebebeb;
+	--line-2:        #e0e0e0;
 
-	--text:          #17181a;
-	--text-2:        #6c6d73;
-	--text-3:        #9a9ba1;
+	--text:          #000000;
+	--text-2:        #8e8e93;
+	--text-3:        #b0b0b5;
 
-	--accent:        #2f6b4f;
-	--accent-bg:     #e9f2ec;
-	--danger:        #b3261e;
+	--accent:        #3478f6;
+	--on-accent:     #ffffff;
+	--accent-weak:   #eef4ff;
+	/* 落在浅色面**上**的蓝字（描边按钮文字、选中项文字、标签）单独一个色号：
+	   实心填充用 --accent，文字用 --accent-fg。深色下两者会分岔，见下。 */
+	--accent-fg:     #3478f6;
 
+	/* M3 的 top app bar 底色。和 --bg 分开才有「一条顶栏」的观感，
+	   这是把 M3 和 Miuix 一眼区分开的最关键一条。 */
+	--surface-container: #eceef1;
+
+	--ok:            #34c759;
+	--ok-bg:         #e9f7ec;
+	--danger:        #ff3b30;
+
+	--glass:         rgba(255, 255, 255, 0.72);
+	--glass-line:    rgba(0, 0, 0, 0.06);
+	--scrim:         rgba(0, 0, 0, 0.28);
+
+	--shadow-sheet:  0 -1px 32px rgba(0, 0, 0, 0.14);
+	color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+	--bg:            #000000;
+	--surface:       #1c1c1e;
+	--surface-2:     #2c2c2e;
+	--surface-3:     #141416;
+	--line:          #2c2c2e;
+	--line-2:        #3a3a3c;
+
+	--text:          #ffffff;
+	--text-2:        #8e8e93;
+	--text-3:        #636366;
+
+	--accent:        #3478f6;
+	--on-accent:     #ffffff;
+	--accent-weak:   #12233a;
+	/* #3478f6 压在 #2c2c2e 上只有约 2.9:1（浅色下压白底是 4.2:1），
+	   所以深色里的蓝字必须提亮，同一个色号不能两处通用。 */
+	--accent-fg:     #8ab4f8;
+
+	--surface-container: #1f2023;
+
+	--ok:            #30d158;
+	--ok-bg:         #12291a;
+	--danger:        #ff453a;
+
+	--glass:         rgba(28, 28, 30, 0.72);
+	--glass-line:    rgba(255, 255, 255, 0.08);
+	--scrim:         rgba(0, 0, 0, 0.55);
+
+	--shadow-sheet:  0 -1px 32px rgba(0, 0, 0, 0.6);
+	color-scheme: dark;
+}
+
+/* 没拿到 data-theme 时的兜底（内联脚本被挡掉才会走到这里） */
+:root {
+	--bg: #f5f5f5; --surface: #ffffff; --surface-2: #f2f2f2; --surface-3: #f7f7f7;
+	--line: #ebebeb; --line-2: #e0e0e0;
+	--text: #000000; --text-2: #8e8e93; --text-3: #b0b0b5;
+	--accent: #3478f6; --on-accent: #ffffff; --accent-weak: #eef4ff;
+	--accent-fg: #3478f6; --surface-container: #eceef1;
+	--ok: #34c759; --ok-bg: #e9f7ec; --danger: #ff3b30;
+	--glass: rgba(255,255,255,0.72); --glass-line: rgba(0,0,0,0.06);
+	--scrim: rgba(0,0,0,0.28); --shadow-sheet: 0 -1px 32px rgba(0,0,0,0.14);
+	color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme]) {
+		--bg: #000000; --surface: #1c1c1e; --surface-2: #2c2c2e; --surface-3: #141416;
+		--line: #2c2c2e; --line-2: #3a3a3c;
+		--text: #ffffff; --text-2: #8e8e93; --text-3: #636366;
+		--accent: #3478f6; --on-accent: #ffffff; --accent-weak: #12233a;
+		--accent-fg: #8ab4f8; --surface-container: #1f2023;
+		--ok: #30d158; --ok-bg: #12291a; --danger: #ff453a;
+		--glass: rgba(28,28,30,0.72); --glass-line: rgba(255,255,255,0.08);
+		--scrim: rgba(0,0,0,0.55); --shadow-sheet: 0 -1px 32px rgba(0,0,0,0.6);
+		color-scheme: dark;
+	}
+}
+
+/* 字体栈不带 system-ui / Roboto / Inter —— 中文按 Noto Sans CJK 落到系统字体，
+   地址用等宽，因为它本来就是一串要逐位核对的字符。 */
+:root {
 	--sans: "Noto Sans SC", "Source Han Sans SC", "PingFang SC",
 	        "Microsoft YaHei", sans-serif;
 	--mono: "Noto Sans Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 
-	--radius: 14px;
+	--r-card: 20px;
+	--r-sunk: 12px;
+	--title-size: 32px;
+	--title-weight: 700;
 }
 
-@media (prefers-color-scheme: dark) {
-	:root {
-		--bg:           #0e0f10;
-		--surface:      #191a1c;
-		--surface-sunk: #141517;
-		--line:         #2b2c30;
-		--line-strong:  #3a3b40;
+/* ══════════════════════════════════════════════ 皮肤差异 */
 
-		--text:         #e8e8ea;
-		--text-2:       #9b9ca3;
-		--text-3:       #6f7076;
+/* ── Miuix：大标题 + 无边框大圆角卡 + 磨砂顶栏底栏 ───────────── */
 
-		--accent:       #7fbb9e;
-		--accent-bg:    #1b2620;
-		--danger:       #e87066;
-	}
+:root[data-skin="miuix"] .topbar {
+	background: var(--glass);
+	-webkit-backdrop-filter: saturate(180%) blur(20px);
+	backdrop-filter: saturate(180%) blur(20px);
+	border-bottom: 1px solid var(--glass-line);
 }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+	:root[data-skin="miuix"] .topbar { background: var(--bg); }
+}
+
+:root[data-skin="miuix"] .actions {
+	background: var(--glass);
+	-webkit-backdrop-filter: saturate(180%) blur(20px);
+	backdrop-filter: saturate(180%) blur(20px);
+	border-top: 1px solid var(--glass-line);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+	:root[data-skin="miuix"] .actions { background: var(--bg); }
+}
+
+/* Miuix 顶部只有那个设置图标，标题在正文里以大字出现 */
+:root[data-skin="miuix"] .topbar-title { display: none; }
+
+:root[data-skin="miuix"] .card,
+:root[data-skin="miuix"] .status-card,
+:root[data-skin="miuix"] .sheet-list { border: none; }
+
+/* 这里**不能**写 `:root[data-skin="miuix"] .status-card { background: var(--ok-bg) }`。
+   它的特异性是 (0,3,0)，会压过下面的 `.status-card.is-warn` (0,2,0)，
+   结果是「未取得地址」这种警告态也被染成绿色 —— 状态卡于是恒绿，
+   成功和失败长得一模一样，观感上就是"配色怪怪的"。
+   成功态的背景本来就由 `.status-card.is-ok` 统一给了，不需要皮肤再管一次。 */
+
+:root[data-skin="miuix"] .sheet { border-radius: 24px 24px 0 0; }
+
+/* Miuix 的分段控件：灰轨道 + 白滑块 + 蓝字。
+   深色下轨道原本也是 --surface-2，和滑块同一个颜色 —— 选中项只剩一行蓝字，
+   滑块整个消失。把轨道压暗一档（--surface-3），就有了「凹陷轨道 + 浮起滑块」
+   的正常层次。这两条**必须限定 miuix 皮肤**：M3 的分段控件是另一种形态
+   （描边分段），如果不限定皮肤，这个 (0,3,0) 的深色规则会按书写顺序压过
+   M3 那套同样 (0,4,0) 的规则，把 M3 也染回灰轨道。 */
+:root[data-skin="miuix"][data-theme="dark"] .seg { background: var(--surface-3); }
+
+:root[data-skin="miuix"][data-theme="dark"] .seg-item[aria-pressed="true"] {
+	background: var(--surface-2);
+	color: var(--accent-fg);
+}
+
+/* ── Material 3：染色顶栏 + 轮廓卡 + tonal 按钮 + 描边分段 ───── */
+
+:root[data-skin="material3"] {
+	--r-card: 12px;
+	--r-sunk: 8px;
+	--title-size: 22px;
+	--title-weight: 500;
+
+	/* M3 tonal（filled tonal）按钮的底色，对应 secondary-container。
+	   不能复用 --accent-weak：#eef4ff 压在 --bg (#f5f5f5) 上几乎看不出填色，
+	   按钮会变成"没上色的白底蓝字"，与 Miuix 的灰底实心区分不开。 */
+	--tonal: #d8e4fd;
+}
+
+:root[data-skin="material3"][data-theme="dark"] {
+	--tonal: #12395c;
+}
+
+/* M3 的小号 top app bar：surface-container 染色 + 承载标题 + 高 64。 */
+:root[data-skin="material3"] .topbar {
+	background: var(--surface-container);
+	border-bottom: none;
+	height: 64px;
+	padding: 0 20px;
+	gap: 8px;
+}
+
+:root[data-skin="material3"] .iconbtn { margin-left: -10px; }
+
+:root[data-skin="material3"] .topbar-title {
+	display: block;
+	font-size: 22px;
+	font-weight: 500;
+	letter-spacing: 0;
+}
+
+/* M3 的标题就在顶栏里，正文不再重复一遍 */
+:root[data-skin="material3"] .page-title { display: none; }
+
+/* 「轮廓卡」：M3 的 outlined card 是透明底 + 描边，不像 Miuix 那样靠白底浮起。
+   这一条把整页的观感从「白色浮起卡片」换成「平面线框」。 */
+:root[data-skin="material3"] .card,
+:root[data-skin="material3"] .sheet-list {
+	background: transparent;
+	border: 1px solid var(--line-2);
+}
+
+/* 状态卡是这一屏的主角，M3 里用 filled container 强调，不做透明 */
+:root[data-skin="material3"] .status-card { border: 1px solid var(--line-2); }
+
+:root[data-skin="material3"] .status-card.is-warn,
+:root[data-skin="material3"] .status-card.is-off {
+	background: var(--surface-container);
+}
+
+:root[data-skin="material3"] .actions {
+	background: var(--bg);
+	border-top: 1px solid var(--line);
+}
+
+/* M3 的按钮两级：次级是 filled tonal（弱色填充），主级是 filled。
+   圆角收到 12px —— Miuix 那边是全药丸，这样一眼就能分出来。 */
+:root[data-skin="material3"] .btn {
+	background: var(--tonal);
+	border: none;
+	border-radius: 12px;
+	color: var(--accent-fg);
+}
+
+:root[data-skin="material3"] .btn-primary {
+	background: var(--accent);
+	color: var(--on-accent);
+}
+
+/* M3 深色的 primary 是「亮底深字」，跟浅色反过来，这是规范不是随手定的 */
+:root[data-skin="material3"][data-theme="dark"] .btn-primary {
+	background: #a8c7fa;
+	color: #08203f;
+}
+
+:root[data-skin="material3"] .sheet { border-radius: 28px 28px 0 0; }
+
+/* outlined segmented button：描边分段 + 细分隔线 + 选中项填
+   secondary-container 并加勾选标记。和 Miuix 的「灰轨道 + 白滑块」是两种
+   完全不同的形态，这是设置面板里最好认的差别。 */
+:root[data-skin="material3"] .seg {
+	background: transparent;
+	border: 1px solid var(--line-2);
+	padding: 0;
+	overflow: hidden;
+}
+
+:root[data-skin="material3"] .seg-item {
+	height: 40px;
+	border-radius: 0;
+}
+
+:root[data-skin="material3"] .seg-item + .seg-item {
+	border-left: 1px solid var(--line-2);
+}
+
+:root[data-skin="material3"] .seg-item[aria-pressed="true"] {
+	background: var(--accent-weak);
+	color: var(--accent-fg);
+}
+
+:root[data-skin="material3"] .seg-item[aria-pressed="true"]::before {
+	content: "✓ ";
+}
+
+/* ══════════════════════════════════════════════ 基础 */
 
 * { box-sizing: border-box; }
 
@@ -67,84 +325,84 @@ html, body {
 	line-height: 1.5;
 	-webkit-text-size-adjust: 100%;
 	-webkit-tap-highlight-color: transparent;
+	overscroll-behavior-y: none;
 }
 
 body {
 	display: flex;
 	flex-direction: column;
 	min-height: 100vh;
-	/* 顶部状态栏 / 底部手势条安全区 */
 	padding-top: env(safe-area-inset-top);
 }
 
-/* ─────────────────────────────────────────── 顶部 */
+/* ══════════════════════════════════════════════ 顶栏 */
 
-.bar {
+.topbar {
+	position: sticky;
+	top: 0;
+	z-index: 20;
 	display: flex;
 	align-items: center;
 	gap: 12px;
-	padding: 16px 20px 14px;
-	border-bottom: 1px solid var(--line);
-	background: var(--bg);
-	position: sticky;
-	top: 0;
-	z-index: 10;
+	height: 56px;
+	padding: 0 16px;
 }
 
-.bar-text { flex: 1; min-width: 0; }
-
-.bar-title {
-	margin: 0;
-	font-size: 19px;
-	font-weight: 600;
-	letter-spacing: 0.01em;
-}
-
-.bar-sub {
-	margin: 3px 0 0;
-	font-size: 13px;
-	color: var(--text-2);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.dot {
+.iconbtn {
 	flex: none;
-	width: 9px;
-	height: 9px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+	margin-left: -6px;
+	padding: 0;
+	border: none;
 	border-radius: 50%;
-	background: var(--text-3);
+	background: transparent;
+	color: var(--text);
+	cursor: pointer;
 }
 
-.dot-on    { background: var(--accent); }
-.dot-off   { background: var(--danger); }
-.dot-idle  { background: var(--text-3); }
+.iconbtn:active { background: var(--surface-2); }
 
-/* ─────────────────────────────────────────── 主体 */
+.iconbtn svg { display: block; }
+
+.topbar-title {
+	margin: 0;
+	font-weight: 500;
+}
+
+/* ══════════════════════════════════════════════ 主体 */
 
 .main {
 	flex: 1;
-	padding: 8px 16px 24px;
-	max-width: 640px;
 	width: 100%;
+	max-width: 640px;
 	margin: 0 auto;
+	padding: 0 16px 24px;
 }
 
-.block { margin-top: 20px; }
+.page-title {
+	margin: 8px 0 18px -2px;
+	font-size: var(--title-size);
+	font-weight: var(--title-weight);
+	letter-spacing: -0.02em;
+	line-height: 1.2;
+}
+
+.block { margin-top: 22px; }
 
 .block-title {
-	margin: 0 0 8px 4px;
+	margin: 0 0 8px 2px;
 	font-size: 13px;
 	font-weight: 500;
 	color: var(--text-2);
-	letter-spacing: 0.02em;
 }
 
 .card {
 	background: var(--surface);
-	border: 1px solid var(--line);
-	border-radius: var(--radius);
+	border-radius: var(--r-card);
 	overflow: hidden;
 }
 
@@ -154,19 +412,52 @@ body {
 	color: var(--text-3);
 }
 
-/* ─────────────────────────────────────────── 地址行 */
+/* ══════════════════════════════════════════════ 状态卡 */
 
-.row {
-	padding: 13px 16px;
+.status-card {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	padding: 16px 18px;
+	border-radius: var(--r-card);
+	background: var(--surface-2);
 }
 
-.row + .row {
-	border-top: 1px solid var(--line);
+.status-card.is-ok   { background: var(--ok-bg); }
+.status-card.is-warn { background: var(--surface-2); }
+.status-card.is-off  { background: var(--surface-2); }
+
+.status-text { flex: 1; min-width: 0; }
+
+/* 标题一律用前景色。第一版把它染成绿色，于是「绿色文字 + 绿色底」既不像
+   强调也不像正文，还和旁边的蓝色按钮抢戏 —— 这是"配色怪"的主因。 */
+.status-title {
+	margin: 0;
+	font-size: 17px;
+	font-weight: 600;
+	color: var(--text);
+	letter-spacing: -0.01em;
 }
 
-.row-own {
-	background: var(--accent-bg);
+.status-sub {
+	margin: 3px 0 0;
+	font-size: 13px;
+	color: var(--text-2);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
+
+.status-icon { flex: none; display: block; }
+.status-icon svg { display: block; }
+
+/* ══════════════════════════════════════════════ 地址行 */
+
+.row { padding: 14px 16px; }
+
+.row + .row { border-top: 1px solid var(--line); }
+
+.row-own { background: var(--accent-weak); }
 
 .row-addr {
 	font-family: var(--mono);
@@ -176,82 +467,75 @@ body {
 	letter-spacing: -0.01em;
 }
 
-.row-own .row-addr {
-	color: var(--accent);
-	font-weight: 600;
-}
+/* 自己的地址不染蓝：蓝在本项目里只表示「可点」，地址是不可点的。
+   要突出它，用字重和底色，不用色相。 */
+.row-own .row-addr { font-weight: 600; color: var(--text); }
 
 .row-meta {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 6px;
-	margin-top: 7px;
+	margin-top: 8px;
 }
 
 .tag {
 	display: inline-block;
-	padding: 1px 7px;
-	border: 1px solid var(--line);
-	border-radius: 6px;
-	background: var(--surface-sunk);
+	padding: 1px 8px;
+	border: 1px solid transparent;
+	border-radius: 999px;
+	background: var(--surface-2);
 	font-size: 11px;
-	line-height: 17px;
+	line-height: 18px;
 	color: var(--text-2);
 }
 
+/* 「DHCPv6」是本模块的标记，用描边蓝而不是实心蓝：实心块在浅色底上
+   是一整块高饱和色，会把整张卡的重心拽过去。 */
 .tag-own {
-	border-color: transparent;
-	background: var(--accent);
-	color: var(--surface);
-}
-
-@media (prefers-color-scheme: dark) {
-	.tag-own { color: #10201a; }
+	border-color: var(--accent-fg);
+	background: transparent;
+	color: var(--accent-fg);
 }
 
 .footnote {
-	margin: 18px 4px 0;
+	margin: 18px 2px 0;
 	font-size: 12px;
 	line-height: 1.6;
 	color: var(--text-3);
 }
 
-/* ─────────────────────────────────────────── 提示条 */
+/* ══════════════════════════════════════════════ 提示条 */
 
 .banner {
-	margin: 12px 16px 0;
-	padding: 11px 14px;
-	border: 1px solid var(--line-strong);
-	border-radius: 10px;
-	background: var(--surface);
+	margin: 0 0 16px;
+	padding: 12px 14px;
+	border-radius: var(--r-sunk);
+	background: var(--surface-2);
 	font-size: 13px;
 	line-height: 1.5;
 	color: var(--text-2);
 }
 
-.banner-error {
-	border-color: var(--danger);
-	color: var(--danger);
-}
+.banner-error { color: var(--danger); }
 
-/* ─────────────────────────────────────────── 操作 */
+/* ══════════════════════════════════════════════ 底部操作条 */
 
 .actions {
 	position: sticky;
 	bottom: 0;
+	z-index: 20;
 	display: flex;
 	gap: 10px;
 	padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-	border-top: 1px solid var(--line);
-	background: var(--bg);
 }
 
 .btn {
 	flex: 1;
-	height: 44px;
-	border: 1px solid var(--line-strong);
-	border-radius: 11px;
-	background: var(--surface);
+	height: 46px;
+	padding: 0 16px;
+	border: none;
+	border-radius: 999px;
+	background: var(--surface-2);
 	color: var(--text);
 	font-family: inherit;
 	font-size: 15px;
@@ -262,20 +546,140 @@ body {
 
 .btn:active { opacity: .6; }
 
-.btn:disabled {
-	opacity: .45;
-	cursor: default;
-}
+.btn:disabled { opacity: .45; cursor: default; }
 
+/* 全屏唯一的实心蓝。SukiSU 也是这么用的：它整页只有那个 FAB 是实心蓝。 */
 .btn-primary {
-	border-color: transparent;
-	background: var(--text);
-	color: var(--bg);
+	background: var(--accent);
+	color: var(--on-accent);
 }
 
-@media (prefers-color-scheme: dark) {
-	.btn-primary {
-		background: #e8e8ea;
-		color: #141517;
-	}
+/* ══════════════════════════════════════════════ 设置面板 */
+
+.scrim {
+	position: fixed;
+	inset: 0;
+	z-index: 40;
+	background: var(--scrim);
+	border: none;
+	padding: 0;
+	opacity: 0;
+	transition: opacity .18s ease;
+}
+
+.scrim[hidden] { display: none; }
+.scrim.is-open { opacity: 1; }
+
+.sheet {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 50;
+	max-height: 86vh;
+	overflow-y: auto;
+	padding: 10px 20px calc(24px + env(safe-area-inset-bottom));
+	background: var(--surface);
+	box-shadow: var(--shadow-sheet);
+	transform: translateY(101%);
+	transition: transform .22s cubic-bezier(.32, .72, 0, 1);
+}
+
+.sheet[hidden] { display: none; }
+.sheet.is-open { transform: translateY(0); }
+
+.sheet-handle {
+	width: 40px;
+	height: 4px;
+	margin: 0 auto 14px;
+	border-radius: 999px;
+	background: var(--line-2);
+}
+
+.sheet-title {
+	margin: 0 0 20px 4px;
+	font-size: 20px;
+	font-weight: 600;
+}
+
+.field-label {
+	margin: 0 0 8px 4px;
+	font-size: 13px;
+	color: var(--text-2);
+}
+
+.field-hint {
+	margin: 8px 4px 0;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--text-3);
+}
+
+.seg {
+	display: flex;
+	align-items: center;
+	padding: 4px;
+	border-radius: 999px;
+	background: var(--surface-2);
+}
+
+.seg-item {
+	flex: 1;
+	min-width: 0;
+	height: 34px;
+	padding: 0 6px;
+	border: none;
+	border-radius: 999px;
+	background: transparent;
+	color: var(--text-2);
+	font-family: inherit;
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* 选中态是白色滑块 + 蓝色文字（SukiSU 的分段控件就是这个做法：
+   accent 只落在文字上，不铺底色）。深色下的覆盖见 Miuix 皮肤块。 */
+.seg-item[aria-pressed="true"] {
+	background: var(--surface);
+	color: var(--accent-fg);
+}
+
+.sheet-list {
+	margin-top: 4px;
+	border-radius: var(--r-sunk);
+	background: var(--surface-3);
+	overflow: hidden;
+}
+
+.list-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-height: 52px;
+	padding: 12px 16px;
+	font-size: 14px;
+}
+
+.list-row + .list-row { border-top: 1px solid var(--line); }
+
+.list-value {
+	color: var(--text-2);
+	text-align: right;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--mono);
+	font-size: 13px;
+}
+
+.sheet-group { margin-top: 22px; }
+
+/* 关掉动画给那些把「减少动态效果」打开的用户 */
+@media (prefers-reduced-motion: reduce) {
+	.scrim, .sheet, .btn { transition: none; }
 }
