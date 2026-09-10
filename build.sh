@@ -10,6 +10,7 @@
 #   sh build.sh                     # 默认 arm64-v8a
 #   sh build.sh --abi arm64-v8a,armeabi-v7a
 #   sh build.sh --ndk /path/to/ndk  # 透传给 fork 的构建脚本
+#   sh build.sh --api 21            # minSdk API level（默认 24，即 Android 7.0）
 #   sh build.sh --skip-build        # 不重编，直接用现有的 module/bin/dhcp6c
 #   sh build.sh --install           # 打完后用 adb + ksud 直接装到设备
 #
@@ -25,15 +26,17 @@ ABI=arm64-v8a
 SKIP_BUILD=0
 DO_INSTALL=0
 NDK_ARG=
+API_ARG=
 ADB=${ADB:-adb}
 
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--abi)        ABI="$2";    shift 2 ;;
 		--ndk)        NDK_ARG="$2"; shift 2 ;;
+		--api)        API_ARG="$2"; shift 2 ;;
 		--skip-build) SKIP_BUILD=1; shift ;;
 		--install)    DO_INSTALL=1; shift ;;
-		-h|--help)    sed -n '2,20p' "$0"; exit 0 ;;
+		-h|--help)    sed -n '2,18p' "$0"; exit 0 ;;
 		*) echo "未知参数: $1" >&2; exit 2 ;;
 	esac
 done
@@ -62,11 +65,10 @@ else
 	esac
 
 	echo "── 编译 dhcp6c ($FIRST_ABI) ──"
-	if [ -n "$NDK_ARG" ]; then
-		sh dhcp6c/android/build.sh --abi "$FIRST_ABI" --out .build-out --ndk "$NDK_ARG"
-	else
-		sh dhcp6c/android/build.sh --abi "$FIRST_ABI" --out .build-out
-	fi
+	set -- --abi "$FIRST_ABI" --out .build-out
+	if [ -n "$NDK_ARG" ]; then set -- "$@" --ndk "$NDK_ARG"; fi
+	if [ -n "$API_ARG" ]; then set -- "$@" --api "$API_ARG"; fi
+	sh dhcp6c/android/build.sh "$@"
 
 	if [ ! -f ".build-out/dhcp6c-$FIRST_ABI" ]; then
 		echo "错误：没有找到编译产物 .build-out/dhcp6c-$FIRST_ABI" >&2
