@@ -145,6 +145,13 @@ RELEASE 等于告诉服务端「这个地址我还回去了」，它可能被回
 保留租约让它自然超时，重新 Solicitation 时更可能拿回原地址。
 DHCPv6 的租约本来就是软的，不发 RELEASE 完全合规。
 
+需要分清楚「不发 RELEASE」和「保住本地地址」是两件不同的事：进程退出时
+`release_all_ia()` → `remove_ia()` → `cleanup_addr()` → `na_ifaddrconf(IFADDRCONF_REMOVE)`
+（`dhcp6c_ia.c:441`、`addrconf.c:228/284`），**本地地址仍然会被删掉**，这条路径没有被
+`opt_norelease` 拦。这是有意为之——用户点了停止就不该在接口上留一个没有协议守护的幽灵地址。
+「不发 RELEASE」保的是**服务端的租约绑定**，所以下次拉起能很快拿回同一个地址；
+真正让地址在重启前后保持一致的是 DUID 与 IAID 都没变。
+
 ### 并发保护
 
 起停会被 WebUI、`action.sh`、watchdog 三处独立触发。而 `d6_start` 在启动前
