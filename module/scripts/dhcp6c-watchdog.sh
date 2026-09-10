@@ -60,6 +60,7 @@ backoff_cap=120     # 退避上限：网络确实不支持 IA_NA 时，最多两
 
 fail=0
 idle_stopped=0
+standby_logged=0
 rotate_tick=0
 
 ifname=$(d6_resolve_ifname)
@@ -97,22 +98,38 @@ while :; do
 	# ── 模块被停用 / 待卸载：收工
 	if d6_is_module_off; then
 		d6_log "模块已停用或待卸载，watchdog 退出"
-		"$CTL" stop >/dev/null 2>&1
+		# 用 hold 而不是 stop：stop 会写下「用户暂停」标志，那个标志是持久化的，
+		# 以后模块被重新启用、重启开机时 watchdog 会因此永远待命 —— 明明是
+		# 「模块被停用」，却留下一个「用户主动暂停」的假象，非常难查。
+		"$CTL" hold >/dev/null 2>&1
 		rm -f "$DHCP6C_WD_PID"
 		exit 0
 	fi
 
 	# ── 用户手动暂停：待命，不反复去停 dhcp6c
 	if d6_is_paused; then
+		# 只在进入待命的那一刻记一行。这里是静默分支，不记的话日志上分不清
+		# 「watchdog 活着但什么都不做」和「watchdog 已经死了」——
+		# 排查「重启后客户端不自启」时就卡在这个区别上。
+		if [ "$standby_logged" != 1 ]; then
+			d6_log "处于暂停状态，watchdog 待命（点『重启客户端』可恢复）"
+			standby_logged=1
+		fi
 		sleep "$interval"
 		continue
 	fi
+	standby_logged=0
 
 	# ── 接口还不存在（没开 Wi-Fi / 启动早期）：停掉客户端等它出现
 	if ! d6_iface_exists "$ifname"; then
 		if [ "$idle_stopped" != 1 ]; then
 			d6_log "接口 $ifname 不存在，先停掉 dhcp6c 等待"
-			"$CTL" stop >/dev/null 2>&1
+			# ⚠️ 这里必须用 hold，不能用 stop。
+			# stop = 写下「用户暂停」标志 + 杀掉本 watchdog 自己：前者会让
+			# 下一拍进入永久待命（且标志持久化，之后每次开机都不启动），
+			# 后者让连待命都没有。开机时 Wi-Fi 往往还没起来，这条分支
+			# 正是「有时候重启后要手动点一下」的现场。
+			"$CTL" hold >/dev/null 2>&1
 			idle_stopped=1
 		fi
 		# 接口名有可能变（换网卡、热插拔），顺手重新解析一次
@@ -121,6 +138,7 @@ while :; do
 		sleep "$interval"
 		continue
 	fi
+	[ "$idle_stopped" = 1 ] && d6_log "接口 $ifname 已出现，恢复巡检"
 	idle_stopped=0
 
 	# ── 判断要不要重启

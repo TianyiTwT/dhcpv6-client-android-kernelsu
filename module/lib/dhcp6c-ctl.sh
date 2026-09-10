@@ -250,6 +250,20 @@ d6_cmd_stop() {
 	d6_watchdog_stop
 }
 
+# 只停客户端：**不设「用户暂停」标志，也不动 watchdog**。
+#
+# 专门给 watchdog 内部用。它遇到的都是**暂时性**状况 —— 接口还没出现、
+# 模块被停用 —— 这些都必须能自动恢复，所以绝不能借用 cmd_stop：
+# cmd_stop 会 touch 暂停标志（于是 watchdog 下一拍进入待命、永不再拉起客户端）
+# 并且杀掉 watchdog 自己（于是连"待命"都没有了，直接消失）。
+#
+# 这就是「重启后客户端偶尔不自启、点一下『重启客户端』才好」的根因：
+# 开机时 Wi-Fi 往往还没起来，watchdog 第一拍就撞上「接口不存在」，
+# 一句 stop 把自己永久关掉了。
+d6_cmd_hold() {
+	d6_stop
+}
+
 d6_cmd_restart() {
 	d6_stop
 	rm -f "$DHCP6C_PAUSED"
@@ -304,6 +318,7 @@ d6_main() {
 	case "$1" in
 		start)   d6_cmd_start ;;
 		stop)    d6_cmd_stop ;;
+		hold)    d6_cmd_hold ;;
 		pause)   d6_cmd_pause ;;
 		resume)  d6_cmd_start ;;
 		restart) d6_cmd_restart ;;
@@ -311,7 +326,7 @@ d6_main() {
 		status)  d6_cmd_status ;;
 		desc)    d6_cmd_desc ;;
 		*)
-			echo "用法: ${0##*/} {status|start|stop|pause|resume|restart|ensure|desc}" >&2
+			echo "用法: ${0##*/} {status|start|stop|hold|pause|resume|restart|ensure|desc}" >&2
 			return 2
 			;;
 	esac

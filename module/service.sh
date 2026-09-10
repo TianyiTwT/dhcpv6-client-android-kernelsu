@@ -12,7 +12,23 @@
 MODDIR=$(readlink -f "$0" 2>/dev/null)
 MODDIR=${MODDIR%/*}
 
+. "$MODDIR/lib/common.sh"
 CTL="$MODDIR/lib/dhcp6c-ctl.sh"
+
+# ── 先清掉上一次会话残留的「用户暂停」标志 ──────────────────────────
+#
+# 暂停是**运行期的临时状态**，跨重启没有意义 —— 开机时用户并没有表达
+# 「这次也先别启动」的意图。而它一旦残留，watchdog 会静默待命，客户端
+# 永远不启动，症状就是「重启完客户端不自启，手动点一下才好」。
+#
+# 历史上这个标志还会被 watchdog 自己误写（见 dhcp6c-watchdog.sh 里
+# 接口不存在 / 模块停用两处的注释），所以这道清理同时也是兜底。
+# 想长期关掉模块，请用模块管理器的「停用」（那是 disable 文件，不冲突）。
+mkdir -p "$DHCP6C_STATE" "$DHCP6C_LOGDIR"
+if [ -e "$DHCP6C_PAUSED" ]; then
+	d6_log "开机：清掉上次残留的暂停标志（暂停不跨重启）"
+	rm -f "$DHCP6C_PAUSED"
+fi
 
 # 已经有一个在跑就什么都不做（幂等）
 "$CTL" ensure
