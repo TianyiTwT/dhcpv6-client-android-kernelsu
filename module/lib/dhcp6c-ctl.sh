@@ -2,7 +2,7 @@
 # lib/dhcp6c-ctl.sh —— dhcp6c 生命周期控制与状态查询
 #
 # 用法：
-#   dhcp6c-ctl.sh {status|start|stop|pause|resume|restart|ensure}
+#   dhcp6c-ctl.sh {status|start|stop|pause|resume|restart|ensure|desc}
 #
 # 本脚本设计为**只执行、不 source**：
 # shell 里被 source 的脚本拿不到自己的路径（$0 是宿主脚本名），
@@ -289,6 +289,17 @@ d6_cmd_status() {
 	echo "PREFIX=$DHCP6C_PREFIX"
 }
 
+# 刷新模块卡片上的简介（module.prop 的 description）。
+#
+# 单独立一个命令，而不是塞进 status 里顺手做：status 是只读查询，WebUI 每
+# 10 秒调一次，在只读路径上写文件是不该有的副作用。何况 WebUI 刷新得再勤
+# 也改不了「管理器要重新读 module.prop 才看得见」这件事，频率没意义。
+d6_cmd_desc() {
+	_if=$(cat "$DHCP6C_STATE/ifname" 2>/dev/null)
+	[ -n "$_if" ] || _if=$(d6_resolve_ifname)
+	d6_desc_update "$(d6_status_short "$_if")"
+}
+
 d6_main() {
 	case "$1" in
 		start)   d6_cmd_start ;;
@@ -298,8 +309,9 @@ d6_main() {
 		restart) d6_cmd_restart ;;
 		ensure)  d6_watchdog_start ;;
 		status)  d6_cmd_status ;;
+		desc)    d6_cmd_desc ;;
 		*)
-			echo "用法: ${0##*/} {status|start|stop|pause|resume|restart|ensure}" >&2
+			echo "用法: ${0##*/} {status|start|stop|pause|resume|restart|ensure|desc}" >&2
 			return 2
 			;;
 	esac

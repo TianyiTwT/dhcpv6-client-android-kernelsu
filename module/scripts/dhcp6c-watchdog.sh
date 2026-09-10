@@ -22,6 +22,10 @@
 # 这个脚本补的就是「谁、在什么时候、因为什么，去启动或重启它」这一层。
 # 在 BSD 上这个角色是 rc 脚本，Android 上没有对应的钩子。
 #
+# 顺带它还负责一件事：每拍把当前状态写进 module.prop 的 description，
+# 于是管理器卡片上能看到「已获取 IPv6 地址 / 未连接 Wi-Fi」这类实时状态
+# （管理器每次打开都会重读 module.prop）。实现见 common.sh 的 d6_desc_update()。
+#
 # ── 两个设计取舍 ─────────────────────────────────────────────────
 #
 # 1) 轮询，而不是监听事件。
@@ -83,6 +87,13 @@ rotate_logs() {
 sleep "$interval"
 
 while :; do
+	# ── 刷新模块卡片上的简介（module.prop 的 description）
+	#
+	# 放在最前面，是为了「暂停 / 已停用 / 没连 Wi-Fi」这些状态也能被写出去：
+	# 下面几个分支都会 continue，放到后面就漏了。
+	# 状态没变时 d6_desc_update() 只读一次文件、不写，所以每拍都调无所谓。
+	d6_desc_update "$(d6_status_short "$ifname")"
+
 	# ── 模块被停用 / 待卸载：收工
 	if d6_is_module_off; then
 		d6_log "模块已停用或待卸载，watchdog 退出"

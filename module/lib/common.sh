@@ -173,3 +173,103 @@ d6_ia_addr() {
 	[ -n "$_a" ] || return 1
 	printf '%s\n' "$_a"
 }
+
+# ---------------------------------------------------------------- 模块简介
+#
+# 管理器每打开一次模块列表都会**重新读** module.prop，所以直接改它的
+# description，卡片上就能显示实时状态。这条路不需要任何管理器专有接口，
+# KernelSU（含 SukiSU）与 Magisk 都适用 —— 靠的就是它们都老老实实读文件。
+#
+# 约定：动态状态写成
+#
+#     description=【<状态短语>】<静态文案>
+#
+# 静态文案**不另存文件**，而是每次从当前 description 里剥掉 【...】 前缀得到。
+# 这么设计是为了自愈：模块更新时 handle_updated_modules() 会把 live 目录整个
+# 换成新解包的副本，module.prop 回到没有前缀的静态版，下一拍就又补上了。
+# 若把静态文案抄一份到 state/ 里，一旦两边不同步就会永久漂移（改了文案却
+# 显示旧词），而且还得回答「以哪个为准」。
+D6_DESC_PROP=$DHCP6C_MODDIR/module.prop
+
+# 一句话状态，给模块简介用。参数：<接口名>；结果打到 stdout，用 $(...) 取。
+#
+# 判断顺序刻意如此：先排除「本来就不该工作」的原因，最后才说工作结果。
+# 否则没连 Wi-Fi 时会显示成「没有获取到地址」，看着像模块坏了。
+d6_status_short() {
+	_sif=$1
+
+	d6_is_module_off && { printf '已停用'; return 0; }
+	d6_is_paused     && { printf '已暂停'; return 0; }
+
+	if ! d6_iface_exists "$_sif"; then
+		printf '未连接 Wi-Fi'
+		return 0
+	fi
+	if ! d6_iface_up "$_sif"; then
+		printf 'Wi-Fi 未就绪'
+		return 0
+	fi
+
+	# 注意判据是「同一个地址还在接口上」，与 watchdog 的重启判据一致：
+	# 只要接口上有别的全局地址（比如运营商 RA 给的），也不算我们拿到了。
+	_e=$(d6_ia_addr 2>/dev/null)
+	if [ -n "$_e" ] && d6_iface_has_addr "$_sif" "$_e"; then
+		printf '已获取 IPv6 地址'
+		return 0
+	fi
+
+	if d6_is_running; then
+		printf '正在获取 IPv6 地址'
+	else
+		printf '客户端未运行'
+	fi
+	return 0
+}
+
+# 刷新模块简介。参数：<状态短语>
+#
+# 只在整行内容真的变了才写文件。watchdog 每 5 秒调一次，绝大多数时候状态没变，
+# 那就不该去动它 —— 除了无谓的写放大，还会让模块目录的 mtime 一直在跳。
+# 状态没变时这里只做一次纯内建的读，不 fork、不产生任何写入。
+d6_desc_update() {
+	_prop=$D6_DESC_PROP
+	[ -n "$1" ] || return 0
+	[ -r "$_prop" ] && [ -w "$_prop" ] || return 0
+
+	# 读出当前 description。`|| [ -n "$_line" ]` 是为了兜住「最后一行没有
+	# 换行符」的情况：那时 read 返回非零，但变量其实已经赋好了值，
+	# 只写 `while read` 会把这一行整个丢掉。
+	_cur=
+	while IFS= read -r _line || [ -n "$_line" ]; do
+		case "$_line" in
+			description=*) _cur=${_line#description=}; break ;;
+		esac
+	done < "$_prop"
+	[ -n "$_cur" ] || return 0     # 没有 description 行就别自作主张造一个
+
+	# 【旧状态】静态文案 -> 静态文案
+	case "$_cur" in
+		【*】*) _base=${_cur#*】} ;;
+		*)      _base=$_cur ;;
+	esac
+
+	_new="【$1】$_base"
+	[ "$_cur" = "$_new" ] && return 0
+
+	# 其余行原样保留，description 统一挪到末尾（管理器不关心键的顺序）。
+	# 先写同目录临时文件再 mv：rename 是原子的，管理器不会读到写了一半的
+	# module.prop（那种情况在它眼里就是「这个模块坏了」）。
+	_tmp="$_prop.tmp.$$"
+	{
+		while IFS= read -r _line || [ -n "$_line" ]; do
+			case "$_line" in
+				description=*) : ;;
+				*)             printf '%s\n' "$_line" ;;
+			esac
+		done < "$_prop"
+		printf 'description=%s\n' "$_new"
+	} >"$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+
+	mv -f "$_tmp" "$_prop" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+	return 0
+}

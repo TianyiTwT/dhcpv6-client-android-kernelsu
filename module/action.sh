@@ -5,7 +5,7 @@
 # KernelSU / Magisk 会在用户点击时执行本脚本，stdout 会显示给用户。
 # 所以这里输出的是给人看的中文，不是给程序解析的 key=value。
 #
-# 行为：确保 watchdog 在跑 -> dhcp6c 没跑就拉起来 -> 打印当前状态。
+# 行为：确保看门狗在运行 -> dhcp6c 没跑就拉起来 -> 刷新模块简介 -> 打印当前状态。
 # 相当于一个「一键修复 + 看看现在怎么样」的按钮。
 
 MODDIR=$(readlink -f "$0" 2>/dev/null)
@@ -13,6 +13,11 @@ MODDIR=${MODDIR%/*}
 CTL="$MODDIR/lib/dhcp6c-ctl.sh"
 
 "$CTL" ensure >/dev/null 2>&1
+
+# 顺手把模块卡片上的简介刷成当前状态。
+# 不等 watchdog：它启动后要先睡一个巡检周期才动手，而用户此刻正盯着屏幕。
+# 代价是刚拉起客户端时简介可能还停在「正在获取」，几秒后由 watchdog 纠正。
+"$CTL" desc >/dev/null 2>&1
 
 _out=$("$CTL" status 2>/dev/null)
 
@@ -40,11 +45,11 @@ else
 fi
 
 if [ "$paused" = 1 ]; then
-	echo "监督：已暂停（用户手动停止）"
+	echo "看门狗：已暂停（用户手动停止）"
 elif [ "$wd" = 1 ]; then
-	echo "监督：watchdog 在跑"
+	echo "看门狗：运行中"
 else
-	echo "监督：watchdog 未运行"
+	echo "看门狗：未运行"
 fi
 
 if [ "$off" = 1 ]; then
