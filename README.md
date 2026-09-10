@@ -1,261 +1,235 @@
-# DHCPv6 客户端（Android / KernelSU 模块）
+# DHCPv6 客户端（Android）
 
-给 Android 补上 **DHCPv6 有状态地址分配（IA_NA）**。
+[![build](https://github.com/TianyiTwT/dhcpv6-client-android-kernelsu/actions/workflows/build.yml/badge.svg)](https://github.com/TianyiTwT/dhcpv6-client-android-kernelsu/actions/workflows/build.yml)
+[![license](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
-Android 全版本都不实现 IA_NA（Google Issue 36949085，Won't Fix），所以在只做
-IA_NA、不支持前缀委派（PD）的网络上，设备拿不到全局 IPv6 地址。本模块用一个
-外部 `dhcp6c` 在无线接口上直接与服务器完成标准四步握手：
+为 Android 补齐 DHCPv6 有状态地址分配（IA_NA）的 KernelSU / Magisk 模块。
+
+Android 全版本都不实现 IA_NA（Google Issue 36949085，Won't Fix）。在只提供
+IA_NA、不做前缀委派（PD）的网络上，设备无法获得全局 IPv6 地址。本模块在无线
+接口上运行一个外部 `dhcp6c`，直接与服务器完成标准四步握手：
 
 ```
 Solicit → Advertise → Request → Reply
 ```
 
-拿到地址后由 `dhcp6c` 自己写进内核，之后 IPv6 数据面的转发与它无关。
+地址由 `dhcp6c` 自行写入内核，握手结束后数据面不再需要本模块参与。
 
-底层是 [wide-dhcpv6](https://github.com/TianyiTwT/dhcp6c)（opnsense fork 的
-Android 适配版）。关键改动是把收发下沉到 **AF_PACKET 二层**，绕开被 Android
-系统 DHCPv6 客户端长期占用的 UDP 546 端口。
+底层是 [wide-dhcpv6](https://github.com/TianyiTwT/dhcp6c) 的 Android 适配 fork。
+收发下沉到 AF_PACKET 二层，绕开被系统 DHCPv6 客户端长期占用的 UDP 546 端口。
 
----
+## 特性
 
-## 现状
+- 标准四步握手，取回 `/128` 有状态地址
+- 地址稳定：DUID 与固定 IAID 落盘，重启后取回同一地址
+- 地址被外部清除后 1～2 秒内自动恢复
+- 空载零唤醒：BPF 过滤器收窄到只放行 DHCPv6 帧
+- 开机自启；接口出现、地址丢失、进程退出均自动收敛
+- 模块卡片实时显示当前状态（依据 `module.prop`，不依赖管理器专有接口）
+- WebUI 显示接口地址，并标出哪一个是本模块取得的
 
-在小米 13 Ultra / Android 16 / KernelSU 4.2.0 上实测通过：
+## 环境要求
 
-| 项目 | 结果 |
-|---|---|
-| 四步握手 | 通过，拿到 `/128` 有状态地址 |
-| 地址可用性 | 能 ping 通公网 IPv6 |
-| 地址稳定性 | 反复重启都拿回同一个地址（靠 DUID + IAID 持久化） |
-| 地址被清掉后自动恢复 | 通过。手动删除地址，1～2 秒内自动拿回**同一个**地址 |
-| 空载唤醒 | 0 次（BPF 过滤器已收窄到只放行 DHCPv6 帧） |
+| 项目 | 要求 |
+| --- | --- |
+| Android | 7.0（API 24）及以上 |
+| 架构 | arm64-v8a 或 armeabi-v7a |
+| Root 方案 | KernelSU / SukiSU / ReSukiSU / Magisk |
+| 网络 | 目标网络提供 DHCPv6 有状态地址分配（RA 中 M 位为 1） |
 
-**只做 IPv6，DNS 尚未处理**，见下文「已知限制」。
+WebUI 依赖 KernelSU 系管理器（`webroot` 是该系引入的机制）。纯 Magisk 环境下
+模块功能不受影响，只是没有内置 WebUI，查看状态改用模块卡片的「操作」按钮或
+直接读状态文件。
 
----
+## 安装
 
-## 目录结构
+从 [Releases](https://github.com/TianyiTwT/dhcpv6-client-android-kernelsu/releases)
+下载对应 ABI 的 zip，在模块管理器里安装，然后重启。
+
+命令行安装：
+
+```sh
+adb push dhcp6c-android-v0.1.1-arm64-v8a.zip /data/local/tmp/
+adb shell su -c 'ksud module install /data/local/tmp/dhcp6c-android-v0.1.1-arm64-v8a.zip'
+```
+
+KernelSU 系的模块内容替换在下次开机才生效，安装后需要重启。重启即自动启动；
+不想等重启，可点模块卡片的「操作」按钮立刻拉起。
+
+## 使用
+
+打开模块的 WebUI（KernelSU 系管理器），页面显示目标接口的 IPv4 / IPv6 地址，
+并标出本模块通过 DHCPv6 取得的那一个，以及客户端与看门狗的运行状态。
+底部的「重启客户端」按钮等价于 `restart`。
+
+不开 WebUI 时，用模块卡片的「操作」按钮查看状态，或直接调用控制脚本：
+
+```sh
+S=/data/adb/modules/dhcp6c-android/lib/dhcp6c-ctl.sh
+
+sh $S status     # key=value 运行状态
+sh $S start      # 清除暂停标志，确保 watchdog 在跑，并启动客户端
+sh $S pause      # 停止客户端并置暂停标志（watchdog 保留但待命）
+sh $S resume     # 等同 start
+sh $S restart    # 停掉后重新拉起
+sh $S ensure     # 只确保 watchdog 在跑
+sh $S hold       # 只停止客户端，不置暂停标志、不结束 watchdog（供 watchdog 内部使用）
+sh $S desc       # 刷新模块卡片上的状态短语
+```
+
+三个停止类子命令的差别：`hold` 只停客户端，watchdog 会把它重新拉起，因此仅用于
+watchdog 内部的暂时性状况；`pause` 额外写入暂停标志，watchdog 转为待命并停止拉起；
+`stop` 在 `pause` 基础上进一步结束 watchdog。
+
+## 配置
+
+生效的配置文件是 `/data/adb/dhcp6c/dhcp6c.conf`，由 `module/etc/dhcp6c.conf.in`
+在安装时生成，之后不会被模块更新覆盖。
+
+```
+interface wlan0 {
+	send ia-na 0;
+	request domain-name-servers;
+	script "/data/adb/dhcp6c/dhcp6c-script";
+};
+
+id-assoc na {
+};
+```
+
+两处不能改动的地方：
+
+- `domain-name-servers` 必须写 `request`。写成 `send` 只会打印一行
+  `invalid operation (0) for option type (19)`，然后静默地不把选项 23 加进 ORO，
+  也就是根本没有请求 DNS。
+- `send ia-na 0;` 中的 IAID 不要改。地址稳定性依赖 DUID 与 IAID 都不变。
+
+## 构建
+
+依赖 Android NDK（r25+）与 bison / flex。Windows 上可用便携版 WinFlexBison。
+详见 `dhcp6c/android/README.md`。
+
+```sh
+git submodule update --init         # 首次
+sh build.sh                         # 编译 arm64-v8a 并打包
+sh build.sh --abi armeabi-v7a       # 换 ABI
+sh build.sh --api 21                # 改 minSdk API level（默认 24）
+sh build.sh --ndk /path/to/ndk      # 指定 NDK 路径
+sh build.sh --skip-build            # 跳过编译，沿用现有 module/bin/dhcp6c
+sh build.sh --install               # 打包后用 adb + ksud 装到设备
+```
+
+产物为 `dist/dhcp6c-android-<version>.zip`。zip 的根目录就是模块内容
+（`module.prop` 位于最外层），可直接被管理器安装。一个模块包只容纳一个 ABI 的
+二进制，所以换 ABI 需要重新打包。
+
+### 持续集成
+
+`.github/workflows/build.yml` 在以下时机运行：推送到 `main`、Pull Request、
+手动触发，以及推送形如 `v0.1.1` 的 tag。
+
+- 构建矩阵为 `arm64-v8a` 与 `armeabi-v7a`，每个 ABI 各出一个 zip，
+  产物在对应 run 的 Artifacts 中下载。
+- 推送 `v*` tag 时额外创建 Release 并附上两个 zip。
+- 手动触发可填写 minSdk API level，默认沿用 `build.sh` 的 24；
+  需要支持 Android 7.0 以下的设备时填 21。
+- CI 与本机等价的条件是 NDK r29 + bison / flex。交叉编译可复现，
+  arm64-v8a 的预期摘要在 workflow 的「记录二进制摘要」一步中给出；摘要不符时
+  先核对 NDK 版本与宿主环境。
+
+## 仓库结构
 
 ```
 .
-├── .github/workflows/build.yml # CI：编译 + 打 tag 时自动发 Release
-├── dhcp6c/                    # submodule：fork 出来的 wide-dhcpv6，锁定 tag android-v1.0.0
-├── module/                    # 模块内容，即打进 zip 的东西
+├── .github/workflows/build.yml   # CI：构建、打包、tag 触发 Release
+├── build.sh                      # 编译 + 打包
+├── dhcp6c/                       # submodule：wide-dhcpv6 的 Android fork
+├── module/                       # 模块内容，即打进 zip 的部分
 │   ├── module.prop
-│   ├── customize.sh           # 安装/升级时执行
-│   ├── service.sh             # 开机自启（late_start service）
-│   ├── action.sh              # 模块卡片上的「操作」按钮
+│   ├── customize.sh              # 安装 / 升级时执行
+│   ├── service.sh                # 开机自启（late_start service）
+│   ├── action.sh                 # 模块卡片的「操作」按钮
 │   ├── uninstall.sh
-│   ├── bin/dhcp6c             # 构建产物，不入库
-│   ├── etc/dhcp6c.conf.in     # 配置模板
+│   ├── bin/dhcp6c                # 构建产物，不入库
+│   ├── etc/dhcp6c.conf.in        # 配置模板
 │   ├── lib/
-│   │   ├── common.sh          # 只读探测（路径、接口、地址、进程、状态短语）
-│   │   └── dhcp6c-ctl.sh      # 状态变更的唯一入口（起停、查询）
+│   │   ├── common.sh             # 路径常量与只读探测
+│   │   └── dhcp6c-ctl.sh         # 状态变更的唯一入口
 │   ├── scripts/
-│   │   ├── dhcp6c-watchdog.sh # 常驻监督进程
-│   │   └── dhcp6c-script      # dhcp6c 的事件回调
-│   └── webroot/               # WebUI（KernelSU 管理器里打开）
-└── build.sh                   # 编译 + 打包
+│   │   ├── dhcp6c-watchdog.sh    # 常驻监督进程
+│   │   └── dhcp6c-script         # dhcp6c 事件回调
+│   └── webroot/                  # WebUI
+└── docs/design.md                # 设计说明
 ```
 
----
-
-## 构建与安装
-
-需要 Android NDK（r25+）与 bison/flex。见 `dhcp6c/android/README.md`。
-
-```sh
-git submodule update --init          # 首次
-sh build.sh                          # 编译并打包
-sh build.sh --install                # 打包后直接 adb + ksud 装到设备
-```
-
-产物：`dist/dhcp6c-android-<version>.zip`，可直接被 KernelSU / Magisk 安装。
-
-装完后开机自动启动；想立刻生效就点模块卡片的「操作」按钮。
-
-### 自动构建（GitHub Actions）
-
-推送到 `main`、提 PR、或在 Actions 页手动触发，都会在 CI 上完整编译一遍。
-矩阵是 `arm64-v8a` + `armeabi-v7a`（一个模块包只容纳一个 ABI 的二进制，
-所以每个 ABI 各出一个 zip），产物在对应 run 的 Artifacts 里下载。
-
-推形如 `v0.2.0` 的 tag 时，除了编译还会自动建 Release 并把两个 zip 挂上去。
-
-CI 与本机等价的条件是 **NDK r29 + bison/flex**。本机编出的 arm64 二进制
-SHA256 是 `08cb2ff61d249ee9ae7a7304e5fc53ed1890b777dfbfacbda2e8dfe1dfba3e52`，
-CI 上若不同，先看 NDK 版本或宿主差异，不要先怀疑代码。
-
-老设备（低于 Android 7.0）需要手动触发并把 minSdk 降到 21 —— 即 Actions 页的
-`minSdk API level` 填 `21`。
-
----
+`dhcp6c/` 固定在 tag `android-v1.0.0`。模块不提交编译产物，因此「用的是哪个
+版本的 dhcp6c」始终由 submodule 指针决定。
 
 ## 运行时布局
 
-模块自身在 `/data/adb/modules/dhcp6c-android/`（只读、随模块更新），
-运行期数据统一在 `/data/adb/dhcp6c/`：
+模块自身位于 `/data/adb/modules/dhcp6c-android/`，只读且随模块更新。
+运行期数据统一位于 `/data/adb/dhcp6c/`：
 
 ```
 /data/adb/dhcp6c/
-├── dhcp6c.conf          # 生效的配置（安装时由模板生成，之后不会被覆盖）
-├── dhcp6c-script        # 回调脚本（每次安装覆盖，保证与模块版本一致）
-├── dhcp6c_duid          # DUID，地址稳定的关键，不要删
+├── dhcp6c.conf          # 生效的配置（安装时由模板生成，之后不被覆盖）
+├── dhcp6c-script        # 回调脚本（每次安装覆盖，与模块版本保持一致）
+├── dhcp6c_duid          # DUID，地址稳定的关键，不要删除
 ├── dhcp6c.pid
 ├── log/{dhcp6c,watchdog,script}.log
 └── state/
-    ├── ia_na.addr       # 最近一次拿到的地址（32 位十六进制）
+    ├── ia_na.addr       # 最近一次取得的地址（32 位十六进制）
     ├── ia_na.text       # 同一地址的冒号写法
-    ├── paused           # 存在 = 用户手动暂停
+    ├── ifname           # 目标接口（可选，未设置则自动探测）
+    ├── paused           # 存在即表示用户手动暂停
     └── watchdog.pid
 ```
 
-`/data/adb/dhcp6c` 这个路径不是随便定的：它是 `dhcp6c` 的编译期 `--prefix`，
-决定了 DUID 的落盘位置。换路径会让地址稳定性失效。
+该路径同时是 `dhcp6c` 的编译期 `--prefix`，决定 DUID 的落盘位置。换到其它
+路径会使地址稳定机制失效。
 
----
+## 测试情况
 
-## 为什么需要一个 watchdog
+开发与验证在两台设备上进行：
 
-这是本项目最容易被质疑的一点：**Android 自己的 DHCPv4 不需要看门狗，为什么你要？**
+| 设备 | 系统 | Root 方案 |
+| --- | --- | --- |
+| 小米 13 Ultra | Android 16 / HyperOS 3 | SukiSU Ultra v4.2.0 |
+| Redmi K30 Pro | Android 16 / HyperOS 3 | ReSukiSU |
 
-因为 Android 的 DHCP 客户端（`IpClient` / `ConnectivityService`）自带一个监督者，
-而这个监督者只服务于**框架自己启动的**客户端：
+在小米 13 Ultra 上确认的行为：
 
-| | Android 自带 DHCP | 本模块的 dhcp6c |
-|---|---|---|
-| 何时启动 | 网络需要地址时由框架启动 | 没人告诉它 → 需要看门狗 |
-| 何时停止 | 网络消失时由框架停掉 | 不会自己停 → 需要看门狗 |
-| 重连 / 漫游 | 框架重建客户端 | 不知道网络变了 → 需要看门狗 |
-| 地址归属 | 写进 `LinkProperties`，框架保管 | 框架不认，会被当成未知地址清掉 → 需要看门狗 |
-| 进程死了 | 框架会拉起 | 没人管 → 需要看门狗 |
+- 四步握手通过，取得 `/128` 有状态地址，可访问公网 IPv6
+- 反复重启取回同一地址
+- 手动删除地址后 1～2 秒内自动取回同一地址
+- 空载唤醒 0 次
 
-而 `wide-dhcpv6` 本身也不监听链路事件。这一点是读过源码确认的：
-**整个仓库没有任何 `PF_ROUTE` / `RTM_*` 处理**，只在启动时 `ifinit()` 取一次
-接口信息，主循环只 `select()` 在 DHCPv6 socket 上。于是它
-
-* 不知道 Wi-Fi 重连了；
-* 不知道地址被网络栈清掉了；
-* 只能等自己 75 分钟一次的 T1 续租 —— 那时旧地址早已不在，续租必然失败。
-
-`scripts/dhcp6c-watchdog.sh` 补的就是这一层。这个角色在 BSD 上是 rc 脚本，
-Android 上没有对应的钩子。
-
-### 它的两个设计取舍
-
-**轮询而不是监听事件。** 设备上没有可用的 netlink 事件工具：toybox 的 `ip`
-不支持 `monitor`，busybox 的 `ip` 只认 `address|route|link|neigh|rule`。
-所以直接读 `/proc/net/if_inet6`，用 shell 内建 `read`，不 fork 任何进程，
-每 5 秒一次的代价可以忽略。
-
-**判据是「上一次拿到的地址还在不在」，而不是「地址集合变没变」。**
-后者看着更通用，其实会自我激发：`dhcp6c` 自己把地址加上去这个动作本身就让
-集合变了，于是看门狗重启 `dhcp6c`、`dhcp6c` 重新加地址、集合又变 —— 无限重启。
-盯着「某个具体地址消失了」才没有这个问题，因为地址出现不触发重启，只有消失会。
-
-### 停止时不发送 RELEASE
-
-停止走 `SIGUSR1`，并且启动时带了 `-n`（两道保险），两者都让 `dhcp6c` 在退出时
-**不发送 RELEASE**。原因是地址稳定性靠「DUID + IAID 不变」来保证，而发出
-RELEASE 等于告诉服务端「这个地址我还回去了」，它可能被回收再分给别人。
-保留租约让它自然超时，重新 Solicitation 时更可能拿回原地址。
-DHCPv6 的租约本来就是软的，不发 RELEASE 完全合规。
-
-需要分清楚「不发 RELEASE」和「保住本地地址」是两件不同的事：进程退出时
-`release_all_ia()` → `remove_ia()` → `cleanup_addr()` → `na_ifaddrconf(IFADDRCONF_REMOVE)`
-（`dhcp6c_ia.c:441`、`addrconf.c:228/284`），**本地地址仍然会被删掉**，这条路径没有被
-`opt_norelease` 拦。这是有意为之——用户点了停止就不该在接口上留一个没有协议守护的幽灵地址。
-「不发 RELEASE」保的是**服务端的租约绑定**，所以下次拉起能很快拿回同一个地址；
-真正让地址在重启前后保持一致的是 DUID 与 IAID 都没变。
-
-### 并发保护
-
-起停会被 WebUI、`action.sh`、watchdog 三处独立触发。而 `d6_start` 在启动前
-必须删掉 pidfile（`dhcp6c` 会对它 `flock`，里面残留的旧 PID 会让它误判
-「已有实例在跑」而直接退出），这个删除会把 flock 赖以生效的 inode 换掉 ——
-两个并发的 `d6_start` 可以各建一个新 inode、各拿一把锁，**同时启动两个实例**。
-真机日志里确实出现过。现在所有状态变更都在一个 `mkdir` 原子锁里串行化。
-
----
-
-## WebUI
-
-KernelSU 管理器里打开。显示目标接口上的 IPv4 / IPv6 地址，并标出哪个是本模块
-通过 DHCPv6 拿到的。数据来自：
-
-```sh
-<模块>/lib/dhcp6c-ctl.sh status     # key=value 运行状态
-ip -o addr show                     # 每行一个地址
-```
-
-两条命令合并成一次调用，用 `##ADDR` 分隔。
-
-`webroot/dev-preview.html` 是给人看渲染效果的预览页（内含模拟桥与真机抓的数据），
-**不会打进模块包**。
-
----
-
-## 模块简介里的实时状态
-
-管理器每次打开模块列表都会重新读 `module.prop`，所以本模块直接改它的
-`description`，卡片上就能看到当前状态 —— 不需要任何管理器专有接口，
-KernelSU（含 SukiSU）与 Magisk 都适用：
-
-```
-【已获取 IPv6 地址】为 Android 补上 DHCPv6 有状态地址分配（IA_NA）。……
-```
-
-状态短语的判定顺序（`lib/common.sh` 的 `d6_status_short()`），刻意是
-「先排除本来就不该工作的原因，最后才说工作结果」：
-
-| 条件 | 显示 |
-|---|---|
-| 模块被停用 / 待卸载 | 已停用 |
-| 用户手动暂停 | 已暂停 |
-| 接口不存在（没连 Wi-Fi） | 未连接 Wi-Fi |
-| 接口在但不是 up | Wi-Fi 未就绪 |
-| 上次拿到的那个地址还在接口上 | 已获取 IPv6 地址 |
-| 客户端在跑但仍没有地址 | 正在获取 IPv6 地址 |
-| 客户端没在跑 | 客户端未运行 |
-
-判据用「**上次拿到的那个**地址在不在」，而不是「有没有全局地址」：运营商
-RA 给的地址会让后者为真，那时并不知道我们到底拿到了没有。
-
-几条实现上的讲究：
-
-* **静态文案不另存文件**，而是每次从当前 `description` 里剥掉 `【…】`
-  前缀得到。这样模块更新（live 目录被整个换成新解包的副本、`module.prop`
-  回到静态版）之后能自己恢复；若把文案抄一份到 `state/`，两边迟早漂移。
-* **状态没变就不写文件。** watchdog 每 5 秒调一次，绝大多数时候状态一样，
-  那时只做一次纯内建的读 —— 否则模块目录的 mtime 会一直跳。
-* **先写同目录临时文件再 `mv`。** rename 是原子的，管理器不会读到写了一半的
-  `module.prop`（在它眼里那就是「模块坏了」）。
-* 刷新时机：开机（`service.sh`）、每 5 秒（watchdog）、点「操作」按钮
-  （`action.sh`），也可以手动 `<模块>/lib/dhcp6c-ctl.sh desc`。
-* 管理器**不会主动感知**这个变化 —— 重新打开模块列表（或下拉刷新）才看得见。
-
----
+Redmi K30 Pro 用于第二套管理器环境下的安装、开机自启与 WebUI 验证。
 
 ## 已知限制
 
-1. **地址不被 `ConnectivityService` 追踪。** 框架的 `LinkProperties` 里没有这个
-   地址，所以 `NetworkCapabilities` 的判定、以及应用通过 API 查询到的地址列表
-   都不包含它。数据面能用（内核转发跟 `dhcp6c` 无关），但「系统是否认为这个网络
-   有 IPv6」这一点上它是瞎的。要补这个缺口只能做 LSPosed 层。
-2. **DNS 未处理。** 服务端下发的 DNS 只记录在 `state/dns.servers`，不会被注入
-   `netd` 解析器。校园网常见「DNS 不返回 AAAA」的问题需要单独处理。
-   顺带一提：`ndc resolver` 在 Android 16 上已被移除（实测返回
-   `500 0 Command not recognized`），老式注入路线走不通。
-3. **默认路由仍然只靠 RA。** DHCPv6 本身不下发默认路由，这个不归本模块管。
-4. **WebUI 只在 KernelSU / APatch 里能开。** `webroot` 目录是 KernelSU 引入的机制，
-   Magisk 没有对应的内置 WebUI（它的模块结构里只有 `post-fs-data.sh` / `service.sh` /
-   `action.sh` / `system.prop` / `sepolicy.rule`）。所以在纯 Magisk 环境下，
-   模块功能照常（`dhcp6c`、看门狗、开机自启、`action.sh` 的「操作」按钮都不依赖 KernelSU），
-   但看地址得用「操作」按钮或自己 `cat /data/adb/dhcp6c/state/ia_na.text`。
+1. **地址不被 `ConnectivityService` 追踪。** 框架的 `LinkProperties` 不包含该
+   地址，因此 `NetworkCapabilities` 的判定和通过 API 查询到的地址列表都不含它。
+   数据面可用（内核转发与 `dhcp6c` 无关），但在「系统是否认为该网络有 IPv6」
+   这一点上框架是无感知的。补齐这个缺口需要在 LSPosed 层实现。
 
----
+2. **DNS 未处理。** 服务端下发的 DNS 仅记录在 `state/dns.servers`，不会注入
+   系统解析器。`ndc resolver` 在 Android 16 上已被移除（实测返回
+   `500 0 Command not recognized`），传统注入路径不可用；需要自定义 DNS 请
+   配合独立的 DNS 模块。
+
+3. **默认路由仍由 RA 提供。** DHCPv6 本身不下发默认路由，这部分不归本模块管。
+
+4. **WebUI 仅在 KernelSU / APatch 系可用。** Magisk 的模块结构中没有 `webroot`
+   机制，其模块卡片只有「操作」按钮。
+
+## 设计说明
+
+看门狗的必要性、轮询而非监听事件的原因、不发送 RELEASE 的取舍、并发保护，
+以及状态短语的判定顺序，见 [docs/design.md](docs/design.md)。
 
 ## 许可
 
-- 本仓库：BSD-3-Clause
-- `dhcp6c/`（wide-dhcpv6）：BSD-3-Clause
+BSD-3-Clause，见 [LICENSE](LICENSE)。
+
+`dhcp6c/`（wide-dhcpv6 fork）同为 BSD-3-Clause，许可证原文在该目录内。

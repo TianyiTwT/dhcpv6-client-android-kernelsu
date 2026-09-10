@@ -2,7 +2,7 @@
 # lib/dhcp6c-ctl.sh —— dhcp6c 生命周期控制与状态查询
 #
 # 用法：
-#   dhcp6c-ctl.sh {status|start|stop|pause|resume|restart|ensure|desc}
+#   dhcp6c-ctl.sh {status|start|stop|hold|pause|resume|restart|ensure|desc}
 #
 # 本脚本设计为**只执行、不 source**：
 # shell 里被 source 的脚本拿不到自己的路径（$0 是宿主脚本名），
